@@ -1,8 +1,14 @@
 {
-    "id": "com.oguz.iptv",
-    "title": "oguzIPTV",
+    "id": "com.oguziptv.app",
     "version": "1.0.0",
-    "vendor": "Oguz",
+    "vendor": "oguzIPTV",
     "type": "web",
-    "main": "index.html"
+    "main": "index.html",
+    "title": "oguzIPTV",
+    "icon": "icon.png",
+    "largeIcon": "largeIcon.png",
+    "bgColor": "#141414",
+    "resolution": "1920x1080",
+    "transparent": false,
+    "appDescription": "Premium Smart TV IPTV Player"
 }
