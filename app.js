@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const resumeTimeSpan = document.getElementById('resume-time');
     const btnResume = document.getElementById('btn-resume');
     const btnRestart = document.getElementById('btn-restart');
+    const osdCloseBtn = document.getElementById('osd-close');
     
     // Input fields
     const serverUrlInput = document.getElementById('server-url');
@@ -42,16 +43,22 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentContentType = 'live'; // 'live', 'movies', or 'series'
     let connectionType = 'xtream'; // 'xtream' or 'm3u'
     let m3uChannelsByCategory = {}; // Store M3U channels grouped by category
-    let osdFocusedColumn = 'audio'; // 'audio' or 'subtitle'
+    let osdFocusedColumn = 'audio'; // 'audio', 'subtitle', or 'close'
     let osdFocusedIndex = 0;
     let allStreamsCache = []; // Cache for search functionality
     let isSearchActive = false; // Search mode state
     let pendingResumeTime = 0; // Store pending resume time for modal
     let currentStreamUrl = ''; // Track current stream URL for progress saving
-    
+    let isTransitionInProgress = false; // Prevent spam/freeze on Enter key
+    let isProgrammaticHashChange = false; // Flag to distinguish programmatic hash changes from back button
+    let isEnteringPlayer = false; // Flag to prevent popstate conflict when entering player
+
+    // Initialize webOS history state for back button handling
+    history.pushState({'page': 'main'}, 'main', location.href);
+
     // Load saved credentials from localStorage
     loadCredentials();
-    
+
     // Hash-based state restoration on startup
     const xtreamServer = localStorage.getItem('xtream_server');
     const xtreamUsername = localStorage.getItem('xtream_username');
@@ -143,6 +150,33 @@ document.addEventListener('DOMContentLoaded', function() {
     // Search input live filtering
     searchInput.addEventListener('input', handleSearchInput);
 
+    // Resume modal button click handlers
+    btnResume.addEventListener('click', function() {
+        videoPlayer.currentTime = pendingResumeTime;
+        videoPlayer.play().catch(err => console.log('Play interrupted:', err));
+        resumeModal.style.display = 'none';
+        activeZone = 'player';
+        isEnteringPlayer = true;
+        window.location.hash = '#player';
+        setTimeout(() => isEnteringPlayer = false, 300);
+    });
+
+    btnRestart.addEventListener('click', function() {
+        videoPlayer.currentTime = 0;
+        videoPlayer.play().catch(err => console.log('Play interrupted:', err));
+        resumeModal.style.display = 'none';
+        activeZone = 'player';
+        isEnteringPlayer = true;
+        window.location.hash = '#player';
+        setTimeout(() => isEnteringPlayer = false, 300);
+    });
+
+    // OSD close button handler
+    osdCloseBtn.addEventListener('click', function() {
+        hideOSD();
+        activeZone = 'player';
+    });
+
     // Video progress saving for VOD
     videoPlayer.addEventListener('timeupdate', function() {
         // Only save progress for VOD (not live streams)
@@ -161,11 +195,39 @@ document.addEventListener('DOMContentLoaded', function() {
     // Spatial navigation with arrow keys
     document.addEventListener('keydown', handleSpatialNavigation);
 
-    // Back button navigation
-    document.addEventListener('keydown', handleBackButton);
-
     // Hash routing for browser back button and refresh persistence
-    window.addEventListener('hashchange', handleRouting);
+    window.addEventListener('hashchange', function() {
+        isProgrammaticHashChange = true;
+        handleRouting();
+        setTimeout(() => isProgrammaticHashChange = false, 100);
+    });
+
+    // webOS Back button handling using History API popstate hack
+    window.addEventListener('popstate', function(e) {
+        // Only handle popstate if it's not a programmatic hash change and not entering player
+        if (!isProgrammaticHashChange && !isEnteringPlayer) {
+            if (activeZone === 'osd') {
+                hideOSD();
+                activeZone = 'player';
+                history.pushState({'page': 'main'}, 'main', location.href);
+            } else if (activeZone === 'resume-modal') {
+                resumeModal.style.display = 'none';
+                videoPlayer.src = '';
+                activeZone = 'channels';
+                window.location.hash = '#channels';
+                history.pushState({'page': 'main'}, 'main', location.href);
+            } else if (activeZone === 'player') {
+                videoPlayer.pause();
+                videoPlayer.style.display = 'none';
+                mainContent.style.display = 'block';
+                document.querySelector('header').style.display = 'flex';
+                document.querySelector('main').style.display = 'block';
+                activeZone = 'channels';
+                window.location.hash = '#channels';
+                history.pushState({'page': 'channels'}, 'channels', '#channels');
+            }
+        }
+    });
     
     function switchTab(tab) {
         if (tab === 'xtream') {
@@ -949,9 +1011,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 hls.attachMedia(videoPlayer);
                 hls.on(Hls.Events.MANIFEST_PARSED, function() {
                     activeZone = 'player';
-                    videoPlayer.play();
+                    videoPlayer.play().catch(err => console.log('Play interrupted:', err));
                     // Set hash to player view after HLS is ready
+                    isEnteringPlayer = true;
                     window.location.hash = '#player';
+                    setTimeout(() => isEnteringPlayer = false, 300);
                 });
 
                 // Detect and populate audio/subtitle tracks when metadata is loaded
@@ -984,9 +1048,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 videoPlayer.src = url;
                 videoPlayer.addEventListener('loadedmetadata', function() {
                     activeZone = 'player';
-                    videoPlayer.play();
+                    videoPlayer.play().catch(err => console.log('Play interrupted:', err));
                     // Set hash to player view after video is ready
+                    isEnteringPlayer = true;
                     window.location.hash = '#player';
+                    setTimeout(() => isEnteringPlayer = false, 300);
                 });
 
                 // Detect and populate audio/subtitle tracks when metadata is loaded
@@ -1044,7 +1110,9 @@ document.addEventListener('DOMContentLoaded', function() {
             activeZone = 'player';
             videoPlayer.play().then(() => {
                 // Set hash to player view after video starts
+                isEnteringPlayer = true;
                 window.location.hash = '#player';
+                setTimeout(() => isEnteringPlayer = false, 300);
             }).catch(error => {
                 console.error('Playback failed:', error);
                 showError('Stream is currently unavailable or offline');
@@ -1079,25 +1147,6 @@ document.addEventListener('DOMContentLoaded', function() {
         lastFocusedChannel = channelElement;
 
         playStream(streamUrl);
-    }
-    
-    function handleBackButton(e) {
-        // WebOS Back keycode: 461
-        // Fallback: Backspace and Escape
-        if (e.keyCode === 461 || e.key === 'Backspace' || e.key === 'Escape') {
-            // If OSD is visible, dismiss it without stopping video
-            if (playerOsd.style.display === 'flex') {
-                e.preventDefault();
-                hideOSD();
-                return;
-            }
-
-            // Otherwise, return to channel list
-            if (videoPlayer.style.display === 'block') {
-                e.preventDefault();
-                window.location.hash = '#channels';
-            }
-        }
     }
 
     function populateOSDTracks() {
@@ -1239,8 +1288,9 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
-        // Hide OSD after selection
+        // Hide OSD after selection and return to player zone
         hideOSD();
+        activeZone = 'player';
     }
     
     function stopVideo() {
@@ -1394,8 +1444,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 e.preventDefault();
             } else if (key === 'Enter') {
+                if (isTransitionInProgress) {
+                    e.preventDefault();
+                    return;
+                }
+                isTransitionInProgress = true;
                 currentFocused.click();
                 e.preventDefault();
+                setTimeout(() => isTransitionInProgress = false, 500);
             }
             return;
         }
@@ -1430,21 +1486,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 e.preventDefault();
             } else if (key === 'Enter') {
+                if (isTransitionInProgress) {
+                    e.preventDefault();
+                    return;
+                }
+                isTransitionInProgress = true;
                 // Execute selected action
                 if (btnResume.classList.contains('focused')) {
                     // Resume from saved time
                     videoPlayer.currentTime = pendingResumeTime;
-                    videoPlayer.play();
+                    videoPlayer.play().catch(err => console.log('Play interrupted:', err));
                 } else {
                     // Start from beginning
                     videoPlayer.currentTime = 0;
-                    videoPlayer.play();
+                    videoPlayer.play().catch(err => console.log('Play interrupted:', err));
                 }
                 // Hide modal and set player zone
                 resumeModal.style.display = 'none';
                 activeZone = 'player';
+                isEnteringPlayer = true;
                 window.location.hash = '#player';
                 e.preventDefault();
+                setTimeout(() => {
+                    isTransitionInProgress = false;
+                    isEnteringPlayer = false;
+                }, 500);
             } else if (key === 'Backspace' || key === 'Escape') {
                 // Cancel and return to channels
                 resumeModal.style.display = 'none';
@@ -1505,6 +1571,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 e.preventDefault();
             } else if (key === 'Enter') {
+                if (isTransitionInProgress) {
+                    e.preventDefault();
+                    return;
+                }
+                isTransitionInProgress = true;
                 // Use appropriate select function based on connection type
                 if (connectionType === 'm3u') {
                     selectM3UCategory(currentFocused);
@@ -1512,6 +1583,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     selectCategory(currentFocused);
                 }
                 e.preventDefault();
+                setTimeout(() => isTransitionInProgress = false, 500);
             }
             return;
         }
@@ -1569,36 +1641,67 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 e.preventDefault();
             } else if (key === 'Enter') {
+                if (isTransitionInProgress) {
+                    e.preventDefault();
+                    return;
+                }
+                isTransitionInProgress = true;
                 playChannel(currentFocused);
                 e.preventDefault();
+                setTimeout(() => isTransitionInProgress = false, 500);
             }
         }
 
         // OSD Navigation
         if (activeZone === 'osd') {
-            const currentList = osdFocusedColumn === 'audio' ? audioTracksList : subtitleTracksList;
-            const items = Array.from(currentList.querySelectorAll('.osd-item'));
-            const currentFocused = items[osdFocusedIndex];
-
             if (key === 'ArrowUp') {
-                if (osdFocusedIndex > 0) {
-                    currentFocused.classList.remove('focused');
-                    osdFocusedIndex--;
-                    items[osdFocusedIndex].classList.add('focused');
-                    items[osdFocusedIndex].scrollIntoView({ block: 'center', behavior: 'smooth' });
+                if (osdFocusedColumn === 'close') {
+                    // Return to subtitle column
+                    osdCloseBtn.classList.remove('focused');
+                    osdFocusedColumn = 'subtitle';
+                    osdFocusedIndex = 0;
+                    const subtitleItems = Array.from(subtitleTracksList.querySelectorAll('.osd-item'));
+                    if (subtitleItems.length > 0) {
+                        subtitleItems[0].classList.add('focused');
+                    }
+                } else {
+                    const currentList = osdFocusedColumn === 'audio' ? audioTracksList : subtitleTracksList;
+                    const items = Array.from(currentList.querySelectorAll('.osd-item'));
+                    if (osdFocusedIndex > 0) {
+                        const currentFocused = items[osdFocusedIndex];
+                        currentFocused.classList.remove('focused');
+                        osdFocusedIndex--;
+                        items[osdFocusedIndex].classList.add('focused');
+                        items[osdFocusedIndex].scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    }
                 }
                 e.preventDefault();
             } else if (key === 'ArrowDown') {
-                if (osdFocusedIndex < items.length - 1) {
-                    currentFocused.classList.remove('focused');
-                    osdFocusedIndex++;
-                    items[osdFocusedIndex].classList.add('focused');
-                    items[osdFocusedIndex].scrollIntoView({ block: 'center', behavior: 'smooth' });
+                if (osdFocusedColumn !== 'close') {
+                    const currentList = osdFocusedColumn === 'audio' ? audioTracksList : subtitleTracksList;
+                    const items = Array.from(currentList.querySelectorAll('.osd-item'));
+                    if (osdFocusedIndex < items.length - 1) {
+                        const currentFocused = items[osdFocusedIndex];
+                        currentFocused.classList.remove('focused');
+                        osdFocusedIndex++;
+                        items[osdFocusedIndex].classList.add('focused');
+                        items[osdFocusedIndex].scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    } else {
+                        // Move to Close button
+                        const currentFocused = items[osdFocusedIndex];
+                        currentFocused.classList.remove('focused');
+                        osdFocusedColumn = 'close';
+                        osdCloseBtn.classList.add('focused');
+                        osdCloseBtn.focus();
+                    }
                 }
                 e.preventDefault();
             } else if (key === 'ArrowLeft') {
                 // Switch to audio column
                 if (osdFocusedColumn === 'subtitle') {
+                    const currentList = subtitleTracksList;
+                    const items = Array.from(currentList.querySelectorAll('.osd-item'));
+                    const currentFocused = items[osdFocusedIndex];
                     currentFocused.classList.remove('focused');
                     osdFocusedColumn = 'audio';
                     osdFocusedIndex = 0;
@@ -1606,12 +1709,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (audioItems.length > 0) {
                         audioItems[0].classList.add('focused');
                     }
-                }
-                e.preventDefault();
-            } else if (key === 'ArrowRight') {
-                // Switch to subtitle column
-                if (osdFocusedColumn === 'audio') {
-                    currentFocused.classList.remove('focused');
+                } else if (osdFocusedColumn === 'close') {
+                    // Switch to subtitle column
+                    osdCloseBtn.classList.remove('focused');
                     osdFocusedColumn = 'subtitle';
                     osdFocusedIndex = 0;
                     const subtitleItems = Array.from(subtitleTracksList.querySelectorAll('.osd-item'));
@@ -1620,9 +1720,49 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 }
                 e.preventDefault();
-            } else if (key === 'Enter') {
-                selectOSDItem(currentFocused);
+            } else if (key === 'ArrowRight') {
+                // Switch to subtitle column or Close button
+                if (osdFocusedColumn === 'audio') {
+                    const currentList = audioTracksList;
+                    const items = Array.from(currentList.querySelectorAll('.osd-item'));
+                    const currentFocused = items[osdFocusedIndex];
+                    currentFocused.classList.remove('focused');
+                    osdFocusedColumn = 'subtitle';
+                    osdFocusedIndex = 0;
+                    const subtitleItems = Array.from(subtitleTracksList.querySelectorAll('.osd-item'));
+                    if (subtitleItems.length > 0) {
+                        subtitleItems[0].classList.add('focused');
+                    }
+                } else if (osdFocusedColumn === 'subtitle') {
+                    // Switch to Close button
+                    const currentList = subtitleTracksList;
+                    const items = Array.from(currentList.querySelectorAll('.osd-item'));
+                    const currentFocused = items[osdFocusedIndex];
+                    currentFocused.classList.remove('focused');
+                    osdFocusedColumn = 'close';
+                    osdCloseBtn.classList.add('focused');
+                    osdCloseBtn.focus();
+                }
                 e.preventDefault();
+            } else if (key === 'Enter') {
+                if (isTransitionInProgress) {
+                    e.preventDefault();
+                    return;
+                }
+                isTransitionInProgress = true;
+                if (osdFocusedColumn === 'close') {
+                    // Close OSD
+                    hideOSD();
+                    activeZone = 'player';
+                } else {
+                    // Select track item
+                    const currentList = osdFocusedColumn === 'audio' ? audioTracksList : subtitleTracksList;
+                    const items = Array.from(currentList.querySelectorAll('.osd-item'));
+                    const currentFocused = items[osdFocusedIndex];
+                    selectOSDItem(currentFocused);
+                }
+                e.preventDefault();
+                setTimeout(() => isTransitionInProgress = false, 500);
             }
             return;
         }
@@ -1632,11 +1772,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (key === 'ArrowUp' || key === 'Enter') {
                 e.preventDefault();
                 showOSD(); // This changes activeZone to 'osd'
-            } else if (key === 'Backspace' || key === 'Escape') {
-                e.preventDefault();
-                stopVideo();
-                window.location.hash = '#channels';
             }
+            // Back button is handled by popstate listener only
             return;
         }
     }

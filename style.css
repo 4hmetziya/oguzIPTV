@@ -539,6 +539,41 @@ div[tabindex]:focus {
     flex-direction: column;
 }
 
+.osd-close-btn {
+    padding: 15px 30px;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    font-size: 20px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease-out;
+    margin-top: 20px;
+}
+
+.osd-close-btn:hover {
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.osd-close-btn.focused {
+    background: rgba(0, 200, 255, 0.2);
+    border-color: #00c8ff;
+    color: #00c8ff;
+    box-shadow: 0 0 15px rgba(0, 200, 255, 0.6);
+    transform: scale(1.05);
+}
+
+.osd-close-btn:focus {
+    background: rgba(0, 200, 255, 0.2);
+    border-color: #00c8ff;
+    color: #00c8ff;
+    box-shadow: 0 0 15px rgba(0, 200, 255, 0.6);
+    transform: scale(1.05);
+    outline: none;
+}
+
 .osd-section h3 {
     color: #00d4ff;
     font-size: 24px;
