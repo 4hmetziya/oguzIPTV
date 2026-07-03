@@ -11,46 +11,47 @@
     <header>
         <img src="logo.png" alt="oguzIPTV Logo" class="main-logo">
         <div id="top-nav">
-            <button id="nav-live" class="nav-button active" tabindex="10">Live TV</button>
-            <button id="nav-movies" class="nav-button" tabindex="11">Movies</button>
-            <button id="nav-series" class="nav-button" tabindex="12">Series</button>
-            <button id="nav-search" class="nav-button" tabindex="13">Search</button>
+            <button id="nav-live" class="nav-button active" tabindex="10" data-i18n="nav-live">Live TV</button>
+            <button id="nav-movies" class="nav-button" tabindex="11" data-i18n="nav-movies">Movies</button>
+            <button id="nav-series" class="nav-button" tabindex="12" data-i18n="nav-series">Series</button>
+            <button id="nav-search" class="nav-button" tabindex="13" data-i18n="nav-search">Search</button>
+            <button id="lang-toggle" class="nav-button" tabindex="18" data-i18n="lang-toggle">Language: EN</button>
         </div>
     </header>
     <main>
         <div id="login-container">
             <div class="tabs">
-                <button id="tab-xtream" class="tab-button active" tabindex="1">Xtream Codes</button>
-                <button id="tab-m3u" class="tab-button" tabindex="2">M3U URL</button>
+                <button id="tab-xtream" class="tab-button active" tabindex="1" data-i18n="tab-xtream">Xtream Codes</button>
+                <button id="tab-m3u" class="tab-button" tabindex="2" data-i18n="tab-m3u">M3U URL</button>
             </div>
 
             <div id="xtream-section" class="login-section active">
                 <div class="input-group">
-                    <label for="server-url">Server URL</label>
-                    <input type="text" id="server-url" tabindex="3" placeholder="http://example.com">
+                    <label for="server-url" data-i18n="label-server-url">Server URL</label>
+                    <input type="text" id="server-url" tabindex="3" placeholder="http://example.com" data-i18n="placeholder-server-url">
                 </div>
                 <div class="input-group">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" tabindex="4" placeholder="Enter username">
+                    <label for="username" data-i18n="label-username">Username</label>
+                    <input type="text" id="username" tabindex="4" placeholder="Enter username" data-i18n="placeholder-username">
                 </div>
                 <div class="input-group">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" tabindex="5" placeholder="Enter password">
+                    <label for="password" data-i18n="label-password">Password</label>
+                    <input type="password" id="password" tabindex="5" placeholder="Enter password" data-i18n="placeholder-password">
                 </div>
             </div>
 
             <div id="m3u-section" class="login-section">
                 <div class="input-group">
-                    <label for="playlist-url">Playlist URL</label>
-                    <input type="text" id="playlist-url" tabindex="6" placeholder="http://example.com/playlist.m3u">
+                    <label for="playlist-url" data-i18n="label-playlist-url">Playlist URL</label>
+                    <input type="text" id="playlist-url" tabindex="6" placeholder="http://example.com/playlist.m3u" data-i18n="placeholder-playlist-url">
                 </div>
             </div>
 
-            <button id="connect-btn" class="connect-button" tabindex="7">Connect</button>
+            <button id="connect-btn" class="connect-button" tabindex="7" data-i18n="btn-connect">Connect</button>
 
             <div id="loading-indicator" style="display: none;">
                 <div class="spinner"></div>
-                <p>Yükleniyor...</p>
+                <p data-i18n="loading-text">Yükleniyor...</p>
             </div>
 
             <div id="error-message" style="display: none;"></div>
@@ -61,7 +62,7 @@
                 <div id="sidebar"></div>
                 <div id="right-pane">
                     <div id="search-container" style="display: none;">
-                        <input type="text" id="search-input" placeholder="Search..." tabindex="14">
+                        <input type="text" id="search-input" placeholder="Search..." tabindex="14" data-i18n="placeholder-search">
                     </div>
                     <div id="channel-list"></div>
                 </div>
@@ -73,25 +74,25 @@
 
     <div id="player-osd" style="display: none;">
         <div class="osd-section">
-            <h3>Audio Tracks</h3>
+            <h3 data-i18n="osd-audio-tracks">Audio Tracks</h3>
             <div id="audio-tracks-list" class="osd-list"></div>
         </div>
         <div class="osd-section">
-            <h3>Subtitles</h3>
+            <h3 data-i18n="osd-subtitles">Subtitles</h3>
             <div id="subtitle-tracks-list" class="osd-list"></div>
         </div>
         <div class="osd-section">
-            <button id="osd-close" class="osd-close-btn" tabindex="17">Close</button>
+            <button id="osd-close" class="osd-close-btn" tabindex="17" data-i18n="osd-close">Close</button>
         </div>
     </div>
 
     <div id="resume-modal" style="display: none;">
         <div class="modal-content">
-            <h2>Resume Playback?</h2>
-            <p>You stopped watching at <span id="resume-time"></span></p>
+            <h2 data-i18n="modal-resume-title">Resume Playback?</h2>
+            <p data-i18n="modal-resume-text">You stopped watching at <span id="resume-time"></span></p>
             <div class="modal-buttons">
-                <button id="btn-resume" class="modal-btn focused" tabindex="15">Resume</button>
-                <button id="btn-restart" class="modal-btn" tabindex="16">Start Over</button>
+                <button id="btn-resume" class="modal-btn focused" tabindex="15" data-i18n="btn-resume">Resume</button>
+                <button id="btn-restart" class="modal-btn" tabindex="16" data-i18n="btn-restart">Start Over</button>
             </div>
         </div>
     </div>

@@ -28,7 +28,108 @@ document.addEventListener('DOMContentLoaded', function() {
     const btnResume = document.getElementById('btn-resume');
     const btnRestart = document.getElementById('btn-restart');
     const osdCloseBtn = document.getElementById('osd-close');
-    
+    const langToggleBtn = document.getElementById('lang-toggle');
+
+    // Translations dictionary
+    const translations = {
+        tr: {
+            'nav-live': 'Canlı TV',
+            'nav-movies': 'Filmler',
+            'nav-series': 'Diziler',
+            'nav-search': 'Ara',
+            'tab-xtream': 'Xtream Codes',
+            'tab-m3u': 'M3U URL',
+
+            'label-server-url': 'Sunucu URL',
+            'label-username': 'Kullanıcı Adı',
+            'label-password': 'Şifre',
+            'label-playlist-url': 'Oynatma Listesi URL',
+
+            'placeholder-server-url': 'http://ornek.com',
+            'placeholder-username': 'Kullanıcı adı girin',
+            'placeholder-password': 'Şifre girin',
+            'placeholder-playlist-url': 'http://ornek.com/playlist.m3u',
+            'placeholder-search': 'Ara...',
+
+            'btn-connect': 'Bağlan',
+            'loading-text': 'Yükleniyor...',
+
+            'osd-audio-tracks': 'Ses Parçaları',
+            'osd-subtitles': 'Altyazılar',
+            'osd-close': 'Kapat',
+
+            'modal-resume-title': 'Oynatmaya Devam Edilsin mi?',
+            'modal-resume-text': 'İzlemeyi şu noktada bıraktınız: ',
+            'btn-resume': 'Devam Et',
+            'btn-restart': 'Baştan Başla',
+
+            'lang-toggle': 'Dil: TR'
+        },
+        en: {
+            'nav-live': 'Live TV',
+            'nav-movies': 'Movies',
+            'nav-series': 'Series',
+            'nav-search': 'Search',
+            'tab-xtream': 'Xtream Codes',
+            'tab-m3u': 'M3U URL',
+
+            'label-server-url': 'Server URL',
+            'label-username': 'Username',
+            'label-password': 'Password',
+            'label-playlist-url': 'Playlist URL',
+
+            'placeholder-server-url': 'http://example.com',
+            'placeholder-username': 'Enter username',
+            'placeholder-password': 'Enter password',
+            'placeholder-playlist-url': 'http://example.com/playlist.m3u',
+            'placeholder-search': 'Search...',
+
+            'btn-connect': 'Connect',
+            'loading-text': 'Loading...',
+
+            'osd-audio-tracks': 'Audio Tracks',
+            'osd-subtitles': 'Subtitles',
+            'osd-close': 'Close',
+
+            'modal-resume-title': 'Resume Playback?',
+            'modal-resume-text': 'You stopped watching at ',
+            'btn-resume': 'Resume',
+            'btn-restart': 'Start Over',
+
+            'lang-toggle': 'Language: EN'
+        }
+    };
+
+    // Current language state
+    let currentLang = localStorage.getItem('appLang') || 'tr';
+
+    // Update translations function
+    function updateTranslations() {
+        const elements = document.querySelectorAll('[data-i18n]');
+        elements.forEach(el => {
+            const key = el.getAttribute('data-i18n');
+            if (translations[currentLang] && translations[currentLang][key]) {
+                if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                    el.placeholder = translations[currentLang][key];
+                } else {
+                    el.innerText = translations[currentLang][key];
+                }
+            }
+        });
+
+        // Update language toggle button text
+        if (langToggleBtn) {
+            langToggleBtn.innerText = translations[currentLang]['lang-toggle'];
+        }
+    }
+
+    // Toggle language function
+    function toggleLanguage() {
+        currentLang = currentLang === 'tr' ? 'en' : 'tr';
+        localStorage.setItem('appLang', currentLang);
+        updateTranslations();
+    }
+
     // Input fields
     const serverUrlInput = document.getElementById('server-url');
     const usernameInput = document.getElementById('username');
@@ -176,6 +277,16 @@ document.addEventListener('DOMContentLoaded', function() {
         hideOSD();
         activeZone = 'player';
     });
+
+    // Language toggle button handler
+    if (langToggleBtn) {
+        langToggleBtn.addEventListener('click', function() {
+            toggleLanguage();
+        });
+    }
+
+    // Initialize translations on load
+    updateTranslations();
 
     // Video progress saving for VOD
     videoPlayer.addEventListener('timeupdate', function() {
@@ -1407,7 +1518,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // TOP NAV Navigation
         if (activeZone === 'topnav') {
-            const navItems = [navLive, navMovies, navSeries, navSearch];
+            const navItems = [navLive, navMovies, navSeries, navSearch, langToggleBtn];
             const currentFocused = focusedElement.classList.contains('nav-button') ? focusedElement : navLive;
             let currentIndex = navItems.indexOf(currentFocused);
 
@@ -1449,7 +1560,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     return;
                 }
                 isTransitionInProgress = true;
-                currentFocused.click();
+                if (currentFocused === langToggleBtn) {
+                    toggleLanguage();
+                } else {
+                    currentFocused.click();
+                }
                 e.preventDefault();
                 setTimeout(() => isTransitionInProgress = false, 500);
             }
