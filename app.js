@@ -63,7 +63,11 @@ document.addEventListener('DOMContentLoaded', function() {
             'btn-resume': 'Devam Et',
             'btn-restart': 'Baştan Başla',
 
-            'lang-toggle': 'Dil: TR'
+            'lang-toggle': 'Dil: TR',
+            'category-favorites': 'Favoriler',
+            'no-favorites': 'Henüz favori kanal eklemediniz',
+            'add-to-favorites': 'Favorilere Ekle',
+            'remove-from-favorites': 'Favorilerden Çıkar'
         },
         en: {
             'nav-live': 'Live TV',
@@ -96,7 +100,11 @@ document.addEventListener('DOMContentLoaded', function() {
             'btn-resume': 'Resume',
             'btn-restart': 'Start Over',
 
-            'lang-toggle': 'Language: EN'
+            'lang-toggle': 'Language: EN',
+            'category-favorites': 'Favorites',
+            'no-favorites': 'No favorite channels added yet',
+            'add-to-favorites': 'Add to Favorites',
+            'remove-from-favorites': 'Remove from Favorites'
         }
     };
 
@@ -130,6 +138,44 @@ document.addEventListener('DOMContentLoaded', function() {
         updateTranslations();
     }
 
+    // Favorites management functions
+    function getFavorites() {
+        return favorites;
+    }
+
+    function saveFavorites() {
+        localStorage.setItem('favorites', JSON.stringify(favorites));
+    }
+
+    function isFavorite(channelId) {
+        return favorites.includes(channelId);
+    }
+
+    function toggleFavorite(channelId) {
+        console.log('toggleFavorite called with channelId:', channelId);
+        console.log('Current favorites before toggle:', favorites);
+
+        const index = favorites.indexOf(channelId);
+
+        if (index > -1) {
+            // Remove from favorites
+            favorites.splice(index, 1);
+            console.log('Removed from favorites');
+        } else {
+            // Add to favorites
+            favorites.push(channelId);
+            console.log('Added to favorites');
+        }
+
+        console.log('Current favorites after toggle:', favorites);
+
+        // Immediately save to localStorage
+        saveFavorites();
+        console.log('Saved to localStorage');
+
+        return index === -1; // Returns true if added, false if removed
+    }
+
     // Input fields
     const serverUrlInput = document.getElementById('server-url');
     const usernameInput = document.getElementById('username');
@@ -153,6 +199,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let isTransitionInProgress = false; // Prevent spam/freeze on Enter key
     let isProgrammaticHashChange = false; // Flag to distinguish programmatic hash changes from back button
     let isEnteringPlayer = false; // Flag to prevent popstate conflict when entering player
+    let favorites = JSON.parse(localStorage.getItem('favorites')) || []; // Global favorites array
 
     // Initialize webOS history state for back button handling
     history.pushState({'page': 'main'}, 'main', location.href);
@@ -417,7 +464,22 @@ document.addEventListener('DOMContentLoaded', function() {
         // Clear existing categories
         sidebar.innerHTML = '';
 
-        // Render categories
+        // Add Favorites category at the top
+        const favoritesItem = document.createElement('div');
+        favoritesItem.className = 'category-item';
+        favoritesItem.textContent = translations[currentLang]['category-favorites'];
+        favoritesItem.dataset.categoryId = 'favorites';
+        favoritesItem.dataset.isFavorites = 'true';
+        favoritesItem.tabIndex = 0;
+
+        // Add click event listener for Favorites
+        favoritesItem.addEventListener('click', () => {
+            selectCategory(favoritesItem);
+        });
+
+        sidebar.appendChild(favoritesItem);
+
+        // Render regular categories
         categories.forEach((category, index) => {
             const categoryItem = document.createElement('div');
             categoryItem.className = 'category-item';
@@ -478,6 +540,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Save to localStorage
         activeCategoryId = categoryItem.dataset.categoryId;
+
+        // Check if this is the Favorites category
+        if (categoryItem.dataset.isFavorites === 'true') {
+            // Fetch all streams for current content type to ensure cache is populated
+            const xtreamServer = localStorage.getItem('xtream_server');
+            const xtreamUsername = localStorage.getItem('xtream_username');
+            const xtreamPassword = localStorage.getItem('xtream_password');
+            if (xtreamServer && xtreamUsername && xtreamPassword) {
+                fetchAllStreamsForFavorites(xtreamServer, xtreamUsername, xtreamPassword);
+            }
+            return;
+        }
         localStorage.setItem('activeCategoryId', activeCategoryId);
 
         // Fetch channels for this category
@@ -489,14 +563,148 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    function showFavoritesChannels() {
+        const favorites = getFavorites();
+        channelList.innerHTML = '';
+
+        if (favorites.length === 0) {
+            // Show empty state
+            const emptyState = document.createElement('div');
+            emptyState.className = 'empty-state';
+            emptyState.textContent = translations[currentLang]['no-favorites'];
+            emptyState.dataset.i18n = 'no-favorites';
+            channelList.appendChild(emptyState);
+            return;
+        }
+
+        // Get all channels from current cache to find favorited ones
+        const allChannels = allStreamsCache || [];
+        const favoriteChannels = allChannels.filter(ch => {
+            const channelId = ch.id || ch.stream_id;
+            return favorites.includes(channelId);
+        });
+
+        if (favoriteChannels.length === 0) {
+            // Show empty state if no matching channels found
+            const emptyState = document.createElement('div');
+            emptyState.className = 'empty-state';
+            emptyState.textContent = translations[currentLang]['no-favorites'];
+            emptyState.dataset.i18n = 'no-favorites';
+            channelList.appendChild(emptyState);
+            return;
+        }
+
+        // Render favorite channels
+        favoriteChannels.forEach((channel, index) => {
+            const channelElement = document.createElement('div');
+            channelElement.className = 'channel-item';
+            channelElement.dataset.streamUrl = channel.url;
+            channelElement.dataset.channelId = channel.id || channel.stream_id;
+            channelElement.dataset.channelName = channel.name;
+            channelElement.tabIndex = 0;
+
+            // Add logo if available
+            if (channel.logo) {
+                const logoContainer = document.createElement('div');
+                logoContainer.style.width = '80px';
+                logoContainer.style.height = '50px';
+                logoContainer.style.flexShrink = '0';
+                logoContainer.style.marginRight = '15px';
+                logoContainer.style.borderRadius = '4px';
+                logoContainer.style.background = 'rgba(0, 0, 0, 0.3)';
+                logoContainer.style.display = 'flex';
+                logoContainer.style.alignItems = 'center';
+                logoContainer.style.justifyContent = 'center';
+                logoContainer.style.overflow = 'hidden';
+
+                const logoImg = document.createElement('img');
+                logoImg.src = channel.logo;
+                logoImg.alt = channel.name;
+                logoImg.style.width = '100%';
+                logoImg.style.height = '100%';
+                logoImg.style.objectFit = 'contain';
+                logoImg.style.objectPosition = 'center';
+                logoImg.onerror = function() {
+                    logoContainer.style.display = 'none';
+                };
+
+                logoContainer.appendChild(logoImg);
+                channelElement.appendChild(logoContainer);
+            }
+
+            // Add channel name
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'channel-name';
+            nameSpan.textContent = channel.name;
+            channelElement.appendChild(nameSpan);
+
+            // Add favorite icon (always favorited in this view)
+            const favoriteIcon = document.createElement('span');
+            favoriteIcon.className = 'favorite-icon favorited';
+            favoriteIcon.innerHTML = '★';
+            favoriteIcon.title = translations[currentLang]['remove-from-favorites'];
+            favoriteIcon.dataset.channelId = channel.id || channel.stream_id;
+            favoriteIcon.tabIndex = -1;
+
+            // Add click event for favorite icon
+            favoriteIcon.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const channelId = channel.id || channel.stream_id;
+                const added = toggleFavorite(channelId);
+                if (!added) {
+                    // If removed, refresh the list
+                    showFavoritesChannels();
+                }
+            });
+
+            channelElement.appendChild(favoriteIcon);
+
+            // Add click event listener
+            channelElement.addEventListener('click', () => {
+                playChannel(channelElement);
+            });
+
+            channelList.appendChild(channelElement);
+        });
+
+        // Focus first channel
+        const firstChannel = channelList.querySelector('.channel-item');
+        if (firstChannel) {
+            firstChannel.classList.add('focused');
+            activeZone = 'channels';
+        }
+    }
+
     function showChannelList(channels) {
         console.log('showChannelList called with', channels.length, 'channels');
+        console.log('Current activeCategoryId:', activeCategoryId);
+        console.log('Current favorites:', favorites);
 
         // Clear existing channels
         channelList.innerHTML = '';
 
+        // Filter for Favorites category
+        let channelsToRender = channels;
+        if (activeCategoryId === 'favorites' || (typeof activeCategoryId === 'string' && activeCategoryId === 'favorites')) {
+            console.log('Filtering for favorites category');
+            channelsToRender = channels.filter(channel => {
+                const channelId = channel.id || channel.stream_id;
+                console.log('Checking channel:', channel.name, 'ID:', channelId, 'Is favorite:', favorites.includes(channelId));
+                return favorites.includes(channelId);
+            });
+            console.log(`Filtered to ${channelsToRender.length} favorite channels`);
+
+            if (channelsToRender.length === 0) {
+                const emptyState = document.createElement('div');
+                emptyState.className = 'empty-state';
+                emptyState.textContent = translations[currentLang]['no-favorites'];
+                channelList.appendChild(emptyState);
+                return;
+            }
+        }
+
         // Limit to first 200 channels for performance
-        const channelsToRender = channels.slice(0, 200);
+        channelsToRender = channelsToRender.slice(0, 200);
         console.log(`Rendering ${channelsToRender.length} channels (limited from ${channels.length} total)`);
 
         // Render channels
@@ -513,14 +721,31 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Add logo if available
             if (channel.logo) {
+                const logoContainer = document.createElement('div');
+                logoContainer.style.width = '80px';
+                logoContainer.style.height = '50px';
+                logoContainer.style.flexShrink = '0';
+                logoContainer.style.marginRight = '15px';
+                logoContainer.style.borderRadius = '4px';
+                logoContainer.style.background = 'rgba(0, 0, 0, 0.3)';
+                logoContainer.style.display = 'flex';
+                logoContainer.style.alignItems = 'center';
+                logoContainer.style.justifyContent = 'center';
+                logoContainer.style.overflow = 'hidden';
+
                 const logoImg = document.createElement('img');
-                logoImg.className = 'channel-logo';
                 logoImg.src = channel.logo;
                 logoImg.alt = channel.name;
+                logoImg.style.width = '100%';
+                logoImg.style.height = '100%';
+                logoImg.style.objectFit = 'contain';
+                logoImg.style.objectPosition = 'center';
                 logoImg.onerror = function() {
-                    this.style.display = 'none'; // Hide broken logos
+                    logoContainer.style.display = 'none';
                 };
-                channelItem.appendChild(logoImg);
+
+                logoContainer.appendChild(logoImg);
+                channelItem.appendChild(logoContainer);
             }
 
             // Add channel name
@@ -528,6 +753,39 @@ document.addEventListener('DOMContentLoaded', function() {
             nameSpan.className = 'channel-name';
             nameSpan.textContent = channel.name;
             channelItem.appendChild(nameSpan);
+
+            // Add favorite icon
+            const favoriteIcon = document.createElement('span');
+            favoriteIcon.className = 'favorite-icon';
+            favoriteIcon.innerHTML = '☆';
+            favoriteIcon.title = translations[currentLang]['add-to-favorites'];
+            favoriteIcon.dataset.channelId = channel.id || channel.stream_id;
+            favoriteIcon.tabIndex = -1; // Not focusable by default, only via navigation
+
+            // Check if this channel is already a favorite
+            const channelId = channel.id || channel.stream_id;
+            if (channelId && isFavorite(channelId)) {
+                favoriteIcon.classList.add('favorited');
+                favoriteIcon.innerHTML = '★';
+                favoriteIcon.title = translations[currentLang]['remove-from-favorites'];
+            }
+
+            // Add click event for favorite icon
+            favoriteIcon.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const added = toggleFavorite(channelId);
+                if (added) {
+                    favoriteIcon.classList.add('favorited');
+                    favoriteIcon.innerHTML = '★';
+                    favoriteIcon.title = translations[currentLang]['remove-from-favorites'];
+                } else {
+                    favoriteIcon.classList.remove('favorited');
+                    favoriteIcon.innerHTML = '☆';
+                    favoriteIcon.title = translations[currentLang]['add-to-favorites'];
+                }
+            });
+
+            channelItem.appendChild(favoriteIcon);
 
             // Add click event listener for mouse selection
             channelItem.addEventListener('click', () => {
@@ -556,6 +814,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const lines = content.split('\n');
         const channelsByCategory = {};
         let currentChannel = null;
+        let channelIndex = 0;
 
         // Regular expressions for parsing M3U
         const groupTitleRegex = /group-title="([^"]*)"/i;
@@ -574,6 +833,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const name = channelNameMatch ? channelNameMatch[1].trim() : 'Unknown Channel';
 
                 currentChannel = {
+                    id: null, // Will be set when URL is known
                     name: name,
                     category: category,
                     url: ''
@@ -581,6 +841,8 @@ document.addEventListener('DOMContentLoaded', function() {
             } else if (line && !line.startsWith('#') && currentChannel) {
                 // This is the stream URL
                 currentChannel.url = line;
+                // Generate ID from URL hash for consistency
+                currentChannel.id = btoa(line).substring(0, 16);
 
                 // Add channel to the appropriate category
                 if (!channelsByCategory[currentChannel.category]) {
@@ -588,9 +850,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 channelsByCategory[currentChannel.category].push(currentChannel);
 
+                // Also add to allStreamsCache
+                allStreamsCache.push(currentChannel);
+
                 currentChannel = null;
+                channelIndex++;
             }
         }
+
+        console.log('Parsed M3U channels:', Object.keys(channelsByCategory).length, 'categories');
+        console.log('Total channels in allStreamsCache:', allStreamsCache.length);
 
         return channelsByCategory;
     }
@@ -646,6 +915,80 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    async function fetchAllStreamsForFavorites(serverUrl, username, password) {
+        // Show loading indicator
+        loadingIndicator.style.display = 'block';
+        loadingIndicator.querySelector('p').textContent = 'Kanallar yükleniyor...';
+        errorMessage.style.display = 'none';
+
+        try {
+            // Construct Xtream JSON API URL for streams based on content type
+            let action;
+            if (currentContentType === 'live') {
+                action = 'get_live_streams';
+            } else if (currentContentType === 'movies') {
+                action = 'get_vod_streams';
+            } else if (currentContentType === 'series') {
+                action = 'get_series';
+            }
+
+            const apiUrl = `${serverUrl}/player_api.php?username=${username}&password=${password}&action=${action}`;
+            console.log('Fetching all streams for favorites from:', apiUrl);
+
+            const response = await fetch(apiUrl);
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('All streams received:', data.length);
+
+            if (!Array.isArray(data) || data.length === 0) {
+                showChannelList([]);
+                return;
+            }
+
+            // Map Xtream JSON objects to our channel format
+            allStreamsCache = data.map(item => {
+                let url;
+                if (currentContentType === 'live') {
+                    url = `${serverUrl}/live/${username}/${password}/${item.stream_id}.m3u8`;
+                } else if (currentContentType === 'movies') {
+                    const containerExtension = item.container_extension || 'mp4';
+                    url = `${serverUrl}/movie/${username}/${password}/${item.stream_id}.${containerExtension}`;
+                } else if (currentContentType === 'series') {
+                    return {
+                        id: item.series_id,
+                        name: item.name,
+                        series_id: item.series_id,
+                        logo: item.stream_icon || null,
+                        url: null
+                    };
+                }
+
+                return {
+                    id: item.stream_id,
+                    name: item.name,
+                    logo: item.stream_icon || null,
+                    url: url
+                };
+            });
+
+            console.log('Cached streams:', allStreamsCache.length);
+
+            // Show filtered favorites
+            showChannelList(allStreamsCache);
+
+        } catch (error) {
+            console.error('Error fetching streams for favorites:', error);
+            showError(`Bağlantı hatası: ${error.message}`);
+        } finally {
+            loadingIndicator.style.display = 'none';
+            loadingIndicator.querySelector('p').textContent = 'Yükleniyor...';
+        }
+    }
+
     async function fetchChannelsByCategory(serverUrl, username, password, categoryId) {
         // Show loading indicator
         loadingIndicator.style.display = 'block';
@@ -693,6 +1036,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Series require a different approach - we need to fetch series info first
                     // For now, store the series_id and handle it in selectSeries
                     return {
+                        id: item.series_id,
                         name: item.name,
                         series_id: item.series_id,
                         logo: item.stream_icon || null,
@@ -701,6 +1045,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
 
                 return {
+                    id: item.stream_id,
                     name: item.name,
                     logo: item.stream_icon || null,
                     url: url
@@ -708,6 +1053,22 @@ document.addEventListener('DOMContentLoaded', function() {
             });
 
             console.log('Mapped streams:', channels.length);
+
+            // Update allStreamsCache with these channels
+            channels.forEach(channel => {
+                if (channel.stream_id) {
+                    channel.id = channel.stream_id;
+                }
+                // Check if channel already exists in cache
+                const existingIndex = allStreamsCache.findIndex(c => c.id === channel.id);
+                if (existingIndex > -1) {
+                    allStreamsCache[existingIndex] = channel;
+                } else {
+                    allStreamsCache.push(channel);
+                }
+            });
+            console.log('Updated allStreamsCache:', allStreamsCache.length);
+
             showChannelList(channels);
 
         } catch (error) {
@@ -859,6 +1220,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     url = `${serverUrl}/movie/${username}/${password}/${item.stream_id}.${containerExtension}`;
                 } else if (currentContentType === 'series') {
                     return {
+                        id: item.series_id,
                         name: item.name,
                         series_id: item.series_id,
                         logo: item.stream_icon || null,
@@ -867,6 +1229,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
 
                 return {
+                    id: item.stream_id,
                     name: item.name,
                     logo: item.stream_icon || null,
                     url: url
@@ -989,6 +1352,21 @@ document.addEventListener('DOMContentLoaded', function() {
         // Clear existing categories
         sidebar.innerHTML = '';
 
+        // Add Favorites category at the top
+        const favoritesItem = document.createElement('div');
+        favoritesItem.className = 'category-item';
+        favoritesItem.textContent = translations[currentLang]['category-favorites'];
+        favoritesItem.dataset.categoryName = 'favorites';
+        favoritesItem.dataset.isFavorites = 'true';
+        favoritesItem.tabIndex = 0;
+
+        // Add click event listener for Favorites
+        favoritesItem.addEventListener('click', () => {
+            selectM3UCategory(favoritesItem);
+        });
+
+        sidebar.appendChild(favoritesItem);
+
         // Render categories
         categoryNames.forEach((categoryName, index) => {
             const categoryItem = document.createElement('div');
@@ -1033,6 +1411,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Save to localStorage
         activeCategoryId = categoryItem.dataset.categoryName;
+
+        // Check if this is the Favorites category
+        if (categoryItem.dataset.isFavorites === 'true') {
+            console.log('Favorites category selected in M3U');
+            console.log('allStreamsCache length:', allStreamsCache.length);
+            console.log('Current favorites:', favorites);
+            // Use allStreamsCache to render favorites
+            showChannelList(allStreamsCache);
+            return;
+        }
         localStorage.setItem('activeCategoryId', activeCategoryId);
 
         // Get channels for this category from the grouped data
@@ -1755,6 +2143,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 }
                 e.preventDefault();
+            } else if (key === 'ArrowRight') {
+                // Move to favorite icon
+                const favoriteIcon = currentFocused.querySelector('.favorite-icon');
+                if (favoriteIcon) {
+                    favoriteIcon.tabIndex = 0;
+                    favoriteIcon.focus();
+                    e.preventDefault();
+                }
             } else if (key === 'Enter') {
                 if (isTransitionInProgress) {
                     e.preventDefault();
@@ -1764,7 +2160,52 @@ document.addEventListener('DOMContentLoaded', function() {
                 playChannel(currentFocused);
                 e.preventDefault();
                 setTimeout(() => isTransitionInProgress = false, 500);
+            } else if (e.keyCode === 405 || e.keyCode === 70) {
+                // Yellow button (405) or F key (70) - toggle favorite
+                const favoriteIcon = currentFocused.querySelector('.favorite-icon');
+                if (favoriteIcon) {
+                    const channelId = favoriteIcon.dataset.channelId;
+                    const added = toggleFavorite(channelId);
+                    if (added) {
+                        favoriteIcon.classList.add('favorited');
+                        favoriteIcon.innerHTML = '★';
+                        favoriteIcon.title = translations[currentLang]['remove-from-favorites'];
+                    } else {
+                        favoriteIcon.classList.remove('favorited');
+                        favoriteIcon.innerHTML = '☆';
+                        favoriteIcon.title = translations[currentLang]['add-to-favorites'];
+                    }
+                    e.preventDefault();
+                }
             }
+            return;
+        }
+
+        // FAVORITE ICON Navigation
+        if (document.activeElement && document.activeElement.classList.contains('favorite-icon')) {
+            if (key === 'ArrowLeft') {
+                // Return to channel item
+                const channelItem = document.activeElement.parentElement;
+                document.activeElement.tabIndex = -1;
+                channelItem.focus();
+                e.preventDefault();
+            } else if (key === 'Enter') {
+                // Toggle favorite
+                const favoriteIcon = document.activeElement;
+                const channelId = favoriteIcon.dataset.channelId;
+                const added = toggleFavorite(channelId);
+                if (added) {
+                    favoriteIcon.classList.add('favorited');
+                    favoriteIcon.innerHTML = '★';
+                    favoriteIcon.title = translations[currentLang]['remove-from-favorites'];
+                } else {
+                    favoriteIcon.classList.remove('favorited');
+                    favoriteIcon.innerHTML = '☆';
+                    favoriteIcon.title = translations[currentLang]['add-to-favorites'];
+                }
+                e.preventDefault();
+            }
+            return;
         }
 
         // OSD Navigation
