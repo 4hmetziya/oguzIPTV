@@ -317,6 +317,7 @@ main {
     overflow-x: hidden;
     padding: 20px;
     min-height: 0;
+    width: 100%;
 }
 
 /* Focus states for TV remote navigation (D-pad) */
@@ -381,6 +382,119 @@ div[tabindex]:focus {
     display: block;
     max-width: 80px !important;
     max-height: 50px !important;
+}
+
+/* Grid View Styling - Netflix-style Poster UI */
+#channel-list.grid-view {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)) !important;
+    gap: 20px !important;
+    padding: 20px;
+    width: 100%;
+    flex-direction: unset;
+}
+
+#channel-list.grid-view .channel-item {
+    position: relative !important;
+    overflow: hidden !important;
+    height: 280px !important;
+    padding: 0 !important;
+    display: block !important;
+    border-radius: 8px !important;
+    background: #141414;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    border: 1px solid transparent;
+    flex-shrink: 0 !important;
+    aspect-ratio: unset !important;
+}
+
+#channel-list.grid-view .channel-item:hover,
+#channel-list.grid-view .channel-item.focused {
+    transform: scale(1.05);
+    z-index: 10;
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.8);
+    border: 2px solid #00bfff;
+}
+
+#channel-list.grid-view .channel-item > div:first-child {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    background: #141414 !important;
+}
+
+#channel-list.grid-view .channel-item > div:first-child img {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    object-fit: cover !important;
+    object-position: center !important;
+    border-radius: 8px !important;
+}
+
+#channel-list.grid-view .channel-item .grid-item-overlay {
+    position: absolute !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0) 100%) !important;
+    padding: 30px 10px 10px !important;
+    z-index: 2 !important;
+    opacity: 0 !important;
+    transition: opacity 0.3s ease !important;
+    text-align: center !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+}
+
+#channel-list.grid-view .channel-item:hover .grid-item-overlay,
+#channel-list.grid-view .channel-item.focused .grid-item-overlay {
+    opacity: 1 !important;
+}
+
+#channel-list.grid-view .channel-item .channel-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    margin: 0;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#channel-list.grid-view .channel-item .favorite-icon {
+    position: absolute !important;
+    top: 10px !important;
+    right: 10px !important;
+    font-size: 24px;
+    color: #ffd700;
+    background: rgba(0, 0, 0, 0.5);
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: 5;
+}
+
+#channel-list.grid-view .channel-item:hover .favorite-icon,
+#channel-list.grid-view .channel-item.focused .favorite-icon {
+    opacity: 1;
 }
 
 .channel-name {

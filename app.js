@@ -1,6 +1,9 @@
 document.addEventListener('DOMContentLoaded', function() {
     console.log('oguzIPTV initialized');
-    
+
+    // Global placeholder image for missing logos/posters
+    const PLACEHOLDER_IMG = 'assets/placeholder.png';
+
     // DOM elements
     const tabXtream = document.getElementById('tab-xtream');
     const tabM3u = document.getElementById('tab-m3u');
@@ -57,6 +60,7 @@ document.addEventListener('DOMContentLoaded', function() {
             'osd-audio-tracks': 'Ses Parçaları',
             'osd-subtitles': 'Altyazılar',
             'osd-close': 'Kapat',
+            'osd-off': 'Kapalı',
 
             'modal-resume-title': 'Oynatmaya Devam Edilsin mi?',
             'modal-resume-text': 'İzlemeyi şu noktada bıraktınız: ',
@@ -67,7 +71,9 @@ document.addEventListener('DOMContentLoaded', function() {
             'category-favorites': 'Favoriler',
             'no-favorites': 'Henüz favori kanal eklemediniz',
             'add-to-favorites': 'Favorilere Ekle',
-            'remove-from-favorites': 'Favorilerden Çıkar'
+            'remove-from-favorites': 'Favorilerden Çıkar',
+            'view-list': 'Görünüm: Liste',
+            'view-grid': 'Görünüm: Izgara'
         },
         en: {
             'nav-live': 'Live TV',
@@ -94,6 +100,7 @@ document.addEventListener('DOMContentLoaded', function() {
             'osd-audio-tracks': 'Audio Tracks',
             'osd-subtitles': 'Subtitles',
             'osd-close': 'Close',
+            'osd-off': 'Off',
 
             'modal-resume-title': 'Resume Playback?',
             'modal-resume-text': 'You stopped watching at ',
@@ -104,12 +111,63 @@ document.addEventListener('DOMContentLoaded', function() {
             'category-favorites': 'Favorites',
             'no-favorites': 'No favorite channels added yet',
             'add-to-favorites': 'Add to Favorites',
-            'remove-from-favorites': 'Remove from Favorites'
+            'remove-from-favorites': 'Remove from Favorites',
+            'view-list': 'View: List',
+            'view-grid': 'View: Grid'
         }
     };
 
     // Current language state
     let currentLang = localStorage.getItem('appLang') || 'tr';
+
+    // View mode state
+    let viewMode = localStorage.getItem('viewMode') || 'list'; // 'list' or 'grid'
+
+    // Toggle view mode function
+    function toggleViewMode() {
+        viewMode = viewMode === 'list' ? 'grid' : 'list';
+        localStorage.setItem('viewMode', viewMode);
+        updateViewModeUI();
+
+        // Re-render current channels with new structure
+        setTimeout(() => {
+            // Check if we're in favorites category
+            if (activeCategoryId === 'favorites' || (typeof activeCategoryId === 'string' && activeCategoryId === 'favorites')) {
+                showFavoritesChannels();
+            } else if (connectionType === 'm3u') {
+                // Re-render M3U channels
+                const activeCategory = document.querySelector('.category-item.active');
+                if (activeCategory) {
+                    selectM3UCategory(activeCategory);
+                }
+            } else {
+                // Re-render Xtream channels
+                const activeCategory = document.querySelector('.category-item.active');
+                if (activeCategory) {
+                    selectCategory(activeCategory);
+                }
+            }
+        }, 100);
+    }
+
+    // Update view mode UI
+    function updateViewModeUI() {
+        const viewToggleBtn = document.getElementById('view-toggle');
+        const channelList = document.getElementById('channel-list');
+
+        if (viewToggleBtn) {
+            viewToggleBtn.setAttribute('data-i18n', viewMode === 'list' ? 'view-list' : 'view-grid');
+            viewToggleBtn.textContent = translations[currentLang][viewMode === 'list' ? 'view-list' : 'view-grid'];
+        }
+
+        if (channelList) {
+            if (viewMode === 'grid') {
+                channelList.classList.add('grid-view');
+            } else {
+                channelList.classList.remove('grid-view');
+            }
+        }
+    }
 
     // Update translations function
     function updateTranslations() {
@@ -126,9 +184,13 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         // Update language toggle button text
-        if (langToggleBtn) {
-            langToggleBtn.innerText = translations[currentLang]['lang-toggle'];
+        const langToggle = document.getElementById('lang-toggle');
+        if (langToggle) {
+            langToggle.textContent = translations[currentLang]['lang-toggle'];
         }
+
+        // Update view toggle button text
+        updateViewModeUI();
     }
 
     // Toggle language function
@@ -329,6 +391,14 @@ document.addEventListener('DOMContentLoaded', function() {
     if (langToggleBtn) {
         langToggleBtn.addEventListener('click', function() {
             toggleLanguage();
+        });
+    }
+
+    // View toggle button handler
+    const viewToggleBtn = document.getElementById('view-toggle');
+    if (viewToggleBtn) {
+        viewToggleBtn.addEventListener('click', function() {
+            toggleViewMode();
         });
     }
 
@@ -603,8 +673,68 @@ document.addEventListener('DOMContentLoaded', function() {
             channelElement.dataset.channelName = channel.name;
             channelElement.tabIndex = 0;
 
-            // Add logo if available
-            if (channel.logo) {
+            // Check if grid view is active
+            const isGridView = channelList.classList.contains('grid-view');
+
+            if (isGridView) {
+                // Grid view structure - Netflix-style poster
+                // Add logo as background
+                const logoContainer = document.createElement('div');
+                logoContainer.style.position = 'absolute';
+                logoContainer.style.top = '0';
+                logoContainer.style.left = '0';
+                logoContainer.style.width = '100%';
+                logoContainer.style.height = '100%';
+                logoContainer.style.background = '#141414';
+
+                const logoImg = document.createElement('img');
+                logoImg.src = channel.logo || PLACEHOLDER_IMG;
+                logoImg.alt = channel.name;
+                logoImg.style.width = '100%';
+                logoImg.style.height = '100%';
+                logoImg.style.objectFit = 'cover';
+                logoImg.style.objectPosition = 'center';
+                logoImg.onerror = function() {
+                    this.onerror = null;
+                    this.src = PLACEHOLDER_IMG;
+                };
+
+                logoContainer.appendChild(logoImg);
+                channelElement.appendChild(logoContainer);
+
+                // Add overlay with channel name and favorite icon
+                const overlay = document.createElement('div');
+                overlay.className = 'grid-item-overlay';
+
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'channel-name';
+                nameSpan.textContent = channel.name;
+                overlay.appendChild(nameSpan);
+
+                // Add favorite icon (always favorited in this view)
+                const favoriteIcon = document.createElement('span');
+                favoriteIcon.className = 'favorite-icon favorited';
+                favoriteIcon.innerHTML = '★';
+                favoriteIcon.title = translations[currentLang]['remove-from-favorites'];
+                favoriteIcon.dataset.channelId = channel.id || channel.stream_id;
+                favoriteIcon.tabIndex = -1;
+
+                // Add click event for favorite icon
+                favoriteIcon.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const channelId = channel.id || channel.stream_id;
+                    const added = toggleFavorite(channelId);
+                    if (!added) {
+                        // If removed, refresh the list
+                        showFavoritesChannels();
+                    }
+                });
+
+                overlay.appendChild(favoriteIcon);
+                channelElement.appendChild(overlay);
+            } else {
+                // List view structure - existing layout
+                // Add logo if available
                 const logoContainer = document.createElement('div');
                 logoContainer.style.width = '80px';
                 logoContainer.style.height = '50px';
@@ -618,46 +748,47 @@ document.addEventListener('DOMContentLoaded', function() {
                 logoContainer.style.overflow = 'hidden';
 
                 const logoImg = document.createElement('img');
-                logoImg.src = channel.logo;
+                logoImg.src = channel.logo || PLACEHOLDER_IMG;
                 logoImg.alt = channel.name;
                 logoImg.style.width = '100%';
                 logoImg.style.height = '100%';
                 logoImg.style.objectFit = 'contain';
                 logoImg.style.objectPosition = 'center';
                 logoImg.onerror = function() {
-                    logoContainer.style.display = 'none';
+                    this.onerror = null;
+                    this.src = PLACEHOLDER_IMG;
                 };
 
                 logoContainer.appendChild(logoImg);
                 channelElement.appendChild(logoContainer);
+
+                // Add channel name
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'channel-name';
+                nameSpan.textContent = channel.name;
+                channelElement.appendChild(nameSpan);
+
+                // Add favorite icon (always favorited in this view)
+                const favoriteIcon = document.createElement('span');
+                favoriteIcon.className = 'favorite-icon favorited';
+                favoriteIcon.innerHTML = '★';
+                favoriteIcon.title = translations[currentLang]['remove-from-favorites'];
+                favoriteIcon.dataset.channelId = channel.id || channel.stream_id;
+                favoriteIcon.tabIndex = -1;
+
+                // Add click event for favorite icon
+                favoriteIcon.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const channelId = channel.id || channel.stream_id;
+                    const added = toggleFavorite(channelId);
+                    if (!added) {
+                        // If removed, refresh the list
+                        showFavoritesChannels();
+                    }
+                });
+
+                channelElement.appendChild(favoriteIcon);
             }
-
-            // Add channel name
-            const nameSpan = document.createElement('span');
-            nameSpan.className = 'channel-name';
-            nameSpan.textContent = channel.name;
-            channelElement.appendChild(nameSpan);
-
-            // Add favorite icon (always favorited in this view)
-            const favoriteIcon = document.createElement('span');
-            favoriteIcon.className = 'favorite-icon favorited';
-            favoriteIcon.innerHTML = '★';
-            favoriteIcon.title = translations[currentLang]['remove-from-favorites'];
-            favoriteIcon.dataset.channelId = channel.id || channel.stream_id;
-            favoriteIcon.tabIndex = -1;
-
-            // Add click event for favorite icon
-            favoriteIcon.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const channelId = channel.id || channel.stream_id;
-                const added = toggleFavorite(channelId);
-                if (!added) {
-                    // If removed, refresh the list
-                    showFavoritesChannels();
-                }
-            });
-
-            channelElement.appendChild(favoriteIcon);
 
             // Add click event listener
             channelElement.addEventListener('click', () => {
@@ -719,8 +850,80 @@ document.addEventListener('DOMContentLoaded', function() {
                 channelItem.dataset.seriesId = channel.series_id;
             }
 
-            // Add logo if available
-            if (channel.logo) {
+            // Check if grid view is active
+            const isGridView = channelList.classList.contains('grid-view');
+
+            if (isGridView) {
+                // Grid view structure - Netflix-style poster
+                // Add logo as background
+                const logoContainer = document.createElement('div');
+                logoContainer.style.position = 'absolute';
+                logoContainer.style.top = '0';
+                logoContainer.style.left = '0';
+                logoContainer.style.width = '100%';
+                logoContainer.style.height = '100%';
+                logoContainer.style.background = '#141414';
+
+                const logoImg = document.createElement('img');
+                logoImg.src = channel.logo || PLACEHOLDER_IMG;
+                logoImg.alt = channel.name;
+                logoImg.style.width = '100%';
+                logoImg.style.height = '100%';
+                logoImg.style.objectFit = 'cover';
+                logoImg.style.objectPosition = 'center';
+                logoImg.onerror = function() {
+                    this.onerror = null;
+                    this.src = PLACEHOLDER_IMG;
+                };
+
+                logoContainer.appendChild(logoImg);
+                channelItem.appendChild(logoContainer);
+
+                // Add overlay with channel name and favorite icon
+                const overlay = document.createElement('div');
+                overlay.className = 'grid-item-overlay';
+
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'channel-name';
+                nameSpan.textContent = channel.name;
+                overlay.appendChild(nameSpan);
+
+                // Add favorite icon
+                const favoriteIcon = document.createElement('span');
+                favoriteIcon.className = 'favorite-icon';
+                favoriteIcon.innerHTML = '☆';
+                favoriteIcon.title = translations[currentLang]['add-to-favorites'];
+                favoriteIcon.dataset.channelId = channel.id || channel.stream_id;
+                favoriteIcon.tabIndex = -1;
+
+                // Check if this channel is already a favorite
+                const channelId = channel.id || channel.stream_id;
+                if (channelId && isFavorite(channelId)) {
+                    favoriteIcon.classList.add('favorited');
+                    favoriteIcon.innerHTML = '★';
+                    favoriteIcon.title = translations[currentLang]['remove-from-favorites'];
+                }
+
+                // Add click event for favorite icon
+                favoriteIcon.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const added = toggleFavorite(channelId);
+                    if (added) {
+                        favoriteIcon.classList.add('favorited');
+                        favoriteIcon.innerHTML = '★';
+                        favoriteIcon.title = translations[currentLang]['remove-from-favorites'];
+                    } else {
+                        favoriteIcon.classList.remove('favorited');
+                        favoriteIcon.innerHTML = '☆';
+                        favoriteIcon.title = translations[currentLang]['add-to-favorites'];
+                    }
+                });
+
+                overlay.appendChild(favoriteIcon);
+                channelItem.appendChild(overlay);
+            } else {
+                // List view structure - existing layout
+                // Add logo if available
                 const logoContainer = document.createElement('div');
                 logoContainer.style.width = '80px';
                 logoContainer.style.height = '50px';
@@ -734,60 +937,61 @@ document.addEventListener('DOMContentLoaded', function() {
                 logoContainer.style.overflow = 'hidden';
 
                 const logoImg = document.createElement('img');
-                logoImg.src = channel.logo;
+                logoImg.src = channel.logo || PLACEHOLDER_IMG;
                 logoImg.alt = channel.name;
                 logoImg.style.width = '100%';
                 logoImg.style.height = '100%';
                 logoImg.style.objectFit = 'contain';
                 logoImg.style.objectPosition = 'center';
                 logoImg.onerror = function() {
-                    logoContainer.style.display = 'none';
+                    this.onerror = null;
+                    this.src = PLACEHOLDER_IMG;
                 };
 
                 logoContainer.appendChild(logoImg);
                 channelItem.appendChild(logoContainer);
-            }
 
-            // Add channel name
-            const nameSpan = document.createElement('span');
-            nameSpan.className = 'channel-name';
-            nameSpan.textContent = channel.name;
-            channelItem.appendChild(nameSpan);
+                // Add channel name
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'channel-name';
+                nameSpan.textContent = channel.name;
+                channelItem.appendChild(nameSpan);
 
-            // Add favorite icon
-            const favoriteIcon = document.createElement('span');
-            favoriteIcon.className = 'favorite-icon';
-            favoriteIcon.innerHTML = '☆';
-            favoriteIcon.title = translations[currentLang]['add-to-favorites'];
-            favoriteIcon.dataset.channelId = channel.id || channel.stream_id;
-            favoriteIcon.tabIndex = -1; // Not focusable by default, only via navigation
+                // Add favorite icon
+                const favoriteIcon = document.createElement('span');
+                favoriteIcon.className = 'favorite-icon';
+                favoriteIcon.innerHTML = '☆';
+                favoriteIcon.title = translations[currentLang]['add-to-favorites'];
+                favoriteIcon.dataset.channelId = channel.id || channel.stream_id;
+                favoriteIcon.tabIndex = -1; // Not focusable by default, only via navigation
 
-            // Check if this channel is already a favorite
-            const channelId = channel.id || channel.stream_id;
-            if (channelId && isFavorite(channelId)) {
-                favoriteIcon.classList.add('favorited');
-                favoriteIcon.innerHTML = '★';
-                favoriteIcon.title = translations[currentLang]['remove-from-favorites'];
-            }
-
-            // Add click event for favorite icon
-            favoriteIcon.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const added = toggleFavorite(channelId);
-                if (added) {
+                // Check if this channel is already a favorite
+                const channelId = channel.id || channel.stream_id;
+                if (channelId && isFavorite(channelId)) {
                     favoriteIcon.classList.add('favorited');
                     favoriteIcon.innerHTML = '★';
                     favoriteIcon.title = translations[currentLang]['remove-from-favorites'];
-                } else {
-                    favoriteIcon.classList.remove('favorited');
-                    favoriteIcon.innerHTML = '☆';
-                    favoriteIcon.title = translations[currentLang]['add-to-favorites'];
                 }
-            });
 
-            channelItem.appendChild(favoriteIcon);
+                // Add click event for favorite icon
+                favoriteIcon.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const added = toggleFavorite(channelId);
+                    if (added) {
+                        favoriteIcon.classList.add('favorited');
+                        favoriteIcon.innerHTML = '★';
+                        favoriteIcon.title = translations[currentLang]['remove-from-favorites'];
+                    } else {
+                        favoriteIcon.classList.remove('favorited');
+                        favoriteIcon.innerHTML = '☆';
+                        favoriteIcon.title = translations[currentLang]['add-to-favorites'];
+                    }
+                });
 
-            // Add click event listener for mouse selection
+                channelItem.appendChild(favoriteIcon);
+            }
+
+            // Add click event listener for mouse selection (common to both views)
             channelItem.addEventListener('click', () => {
                 playChannel(channelItem);
             });
@@ -1102,6 +1306,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const data = await response.json();
             console.log('Series info received:', data);
+
+            // Check for subtitles in series info
+            if (data && data.subtitles && Array.isArray(data.subtitles)) {
+                console.log('Found subtitles in series info:', data.subtitles);
+                window.currentSubtitles = data.subtitles;
+            } else {
+                window.currentSubtitles = null;
+            }
 
             if (!data || !data.episodes) {
                 showError('No episodes found for this series');
@@ -1508,6 +1720,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 hls = new Hls();
                 hls.loadSource(url);
                 hls.attachMedia(videoPlayer);
+
                 hls.on(Hls.Events.MANIFEST_PARSED, function() {
                     activeZone = 'player';
                     videoPlayer.play().catch(err => console.log('Play interrupted:', err));
@@ -1645,14 +1858,39 @@ document.addEventListener('DOMContentLoaded', function() {
         // Store last focused channel
         lastFocusedChannel = channelElement;
 
+        // Inject subtitle tracks if available
+        injectSubtitleTracks();
+
         playStream(streamUrl);
+    }
+
+    function injectSubtitleTracks() {
+        // Clear existing subtitle tracks from video element
+        const existingTracks = videoPlayer.querySelectorAll('track[kind="subtitles"]');
+        existingTracks.forEach(track => track.remove());
+
+        // Check if we have subtitles from API response
+        if (window.currentSubtitles && Array.isArray(window.currentSubtitles)) {
+            console.log('Injecting subtitle tracks:', window.currentSubtitles);
+
+            window.currentSubtitles.forEach((subtitle, index) => {
+                const track = document.createElement('track');
+                track.kind = 'subtitles';
+                track.label = subtitle.language || `Subtitle ${index + 1}`;
+                track.src = subtitle.url || subtitle.subtitle_url;
+                track.srclang = subtitle.lang || subtitle.language || 'en';
+                track.default = index === 0;
+                videoPlayer.appendChild(track);
+            });
+
+            console.log('Subtitle tracks injected successfully');
+        } else {
+            console.log('No subtitle tracks available to inject');
+        }
     }
 
     function populateOSDTracks() {
         console.log('Populating OSD tracks');
-
-        // Warn about browser limitations for embedded tracks
-        console.warn('HTML5 browsers cannot natively extract embedded MKV audio/subtitle tracks. External files or a custom demuxer are required.');
 
         // Clear existing lists
         audioTracksList.innerHTML = '';
@@ -1683,11 +1921,11 @@ document.addEventListener('DOMContentLoaded', function() {
             audioTracksList.appendChild(item);
         }
 
-        // Populate subtitle tracks
+        // Populate subtitle tracks from injected HTML5 tracks
         // Always add 'Off' option at the top
         const offItem = document.createElement('div');
         offItem.className = 'osd-item';
-        offItem.textContent = 'Off';
+        offItem.textContent = translations[currentLang]['osd-off'];
         offItem.dataset.trackIndex = -1;
         offItem.dataset.trackType = 'subtitle';
         subtitleTracksList.appendChild(offItem);
@@ -1695,20 +1933,26 @@ document.addEventListener('DOMContentLoaded', function() {
         if (videoPlayer.textTracks && videoPlayer.textTracks.length > 0) {
             for (let i = 0; i < videoPlayer.textTracks.length; i++) {
                 const track = videoPlayer.textTracks[i];
-                const item = document.createElement('div');
-                item.className = 'osd-item';
-                item.textContent = track.label || track.language || `Subtitle ${i + 1}`;
-                item.dataset.trackIndex = i;
-                item.dataset.trackType = 'subtitle';
+                // Only show subtitle tracks (kind='subtitles')
+                if (track.kind === 'subtitles') {
+                    const item = document.createElement('div');
+                    item.className = 'osd-item';
+                    item.textContent = track.label || track.language || `Subtitle ${i + 1}`;
+                    item.dataset.trackIndex = i;
+                    item.dataset.trackType = 'subtitle';
 
-                if (track.mode === 'showing') {
-                    item.classList.add('active');
+                    if (track.mode === 'showing') {
+                        item.classList.add('active');
+                    }
+
+                    subtitleTracksList.appendChild(item);
                 }
-
-                subtitleTracksList.appendChild(item);
             }
-        } else {
-            // No subtitle tracks available
+        }
+
+        // If no subtitle tracks found after filtering
+        if (subtitleTracksList.children.length === 1) {
+            // Only 'Off' item exists, meaning no subtitles
             const item = document.createElement('div');
             item.className = 'osd-item';
             item.textContent = 'No subtitles';
@@ -1767,7 +2011,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 item.classList.add('active');
             }
         } else if (trackType === 'subtitle') {
-            // Select subtitle track
+            // Native HTML5 subtitle track switching
             if (videoPlayer.textTracks) {
                 if (trackIndex === -1) {
                     // Turn off all subtitles
@@ -1780,11 +2024,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         videoPlayer.textTracks[i].mode = (i === trackIndex) ? 'showing' : 'disabled';
                     }
                 }
-
-                // Update active class
-                subtitleTracksList.querySelectorAll('.osd-item').forEach(i => i.classList.remove('active'));
-                item.classList.add('active');
             }
+
+            // Update active class
+            subtitleTracksList.querySelectorAll('.osd-item').forEach(i => i.classList.remove('active'));
+            item.classList.add('active');
         }
 
         // Hide OSD after selection and return to player zone
@@ -1858,6 +2102,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const key = e.key;
         const focusedElement = document.activeElement;
 
+        // Guard clause - if no focused element, return
+        if (!focusedElement) {
+            return;
+        }
+
         // Navigation map for login screen
         const loginNavMap = {
             'tab-xtream': {
@@ -1906,9 +2155,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // TOP NAV Navigation
         if (activeZone === 'topnav') {
-            const navItems = [navLive, navMovies, navSeries, navSearch, langToggleBtn];
-            const currentFocused = focusedElement.classList.contains('nav-button') ? focusedElement : navLive;
+            const navItems = [navLive, navMovies, navSeries, navSearch, viewToggleBtn, langToggleBtn];
+            const currentFocused = (focusedElement.classList && focusedElement.classList.contains('nav-button')) ? focusedElement : navLive;
             let currentIndex = navItems.indexOf(currentFocused);
+
+            // Guard clause - if currentFocused not found, default to first item
+            if (currentIndex === -1 && navItems.length > 0) {
+                currentFocused = navItems[0];
+                currentIndex = 0;
+            }
 
             // Exit search mode if navigating away from search button
             if (isSearchActive && (key === 'ArrowLeft' || key === 'ArrowRight')) {
@@ -1916,27 +2171,39 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             if (key === 'ArrowRight' && currentIndex < navItems.length - 1) {
-                currentFocused.classList.remove('focused');
+                if (currentFocused && currentFocused.classList) {
+                    currentFocused.classList.remove('focused');
+                }
                 const newFocused = navItems[currentIndex + 1];
-                newFocused.classList.add('focused');
-                newFocused.focus();
+                if (newFocused && newFocused.classList) {
+                    newFocused.classList.add('focused');
+                    newFocused.focus();
+                }
                 e.preventDefault();
             } else if (key === 'ArrowLeft' && currentIndex > 0) {
-                currentFocused.classList.remove('focused');
+                if (currentFocused && currentFocused.classList) {
+                    currentFocused.classList.remove('focused');
+                }
                 const newFocused = navItems[currentIndex - 1];
-                newFocused.classList.add('focused');
-                newFocused.focus();
+                if (newFocused && newFocused.classList) {
+                    newFocused.classList.add('focused');
+                    newFocused.focus();
+                }
                 e.preventDefault();
             } else if (key === 'ArrowDown') {
                 // Move down to the Sidebar (or search if search is active)
-                currentFocused.classList.remove('focused');
+                if (currentFocused && currentFocused.classList) {
+                    currentFocused.classList.remove('focused');
+                }
                 if (isSearchActive) {
                     activeZone = 'search';
-                    searchInput.focus();
+                    if (searchInput) {
+                        searchInput.focus();
+                    }
                 } else {
                     activeZone = 'sidebar';
                     const firstCategory = sidebar.querySelector('.category-item');
-                    if (firstCategory) {
+                    if (firstCategory && firstCategory.classList) {
                         firstCategory.classList.add('focused');
                         firstCategory.focus();
                     }
@@ -2097,85 +2364,223 @@ document.addEventListener('DOMContentLoaded', function() {
             const channels = Array.from(channelList.querySelectorAll('.channel-item'));
             const currentFocused = focusedChannel || channels[0];
             const currentIndex = channels.indexOf(currentFocused);
+            const isGridView = channelList.classList.contains('grid-view');
 
-            if (key === 'ArrowUp') {
-                if (currentIndex > 0) {
+            if (isGridView) {
+                // 2D Grid Navigation
+                if (key === 'ArrowRight') {
+                    // Move to next item in row
+                    if (currentIndex < channels.length - 1) {
+                        currentFocused.classList.remove('focused');
+                        const newFocused = channels[currentIndex + 1];
+                        newFocused.classList.add('focused');
+                        newFocused.focus();
+                        newFocused.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        e.preventDefault();
+                    }
+                } else if (key === 'ArrowLeft') {
+                    // Move to previous item in row
+                    if (currentIndex > 0) {
+                        currentFocused.classList.remove('focused');
+                        const newFocused = channels[currentIndex - 1];
+                        newFocused.classList.add('focused');
+                        newFocused.focus();
+                        newFocused.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        e.preventDefault();
+                    } else {
+                        // Move back to sidebar zone
+                        activeZone = 'sidebar';
+                        const activeCategory = document.querySelector('.category-item.active');
+                        if (activeCategory) {
+                            activeCategory.classList.add('focused');
+                            activeCategory.focus();
+                        } else {
+                            const firstCategory = sidebar.querySelector('.category-item');
+                            if (firstCategory) {
+                                firstCategory.classList.add('focused');
+                                firstCategory.focus();
+                            }
+                        }
+                        e.preventDefault();
+                    }
+                } else if (key === 'ArrowDown') {
+                    // Move to item in same column in row below
+                    const currentRect = currentFocused.getBoundingClientRect();
+                    const currentCenterX = currentRect.left + currentRect.width / 2;
+                    let bestMatch = null;
+                    let bestDistance = Infinity;
+
+                    channels.forEach((channel, index) => {
+                        if (index > currentIndex) {
+                            const rect = channel.getBoundingClientRect();
+                            const channelCenterX = rect.left + rect.width / 2;
+                            const horizontalDistance = Math.abs(currentCenterX - channelCenterX);
+                            const verticalDistance = rect.top - currentRect.bottom;
+
+                            // Only consider items below current row
+                            if (verticalDistance > 0 && verticalDistance < 100) {
+                                const totalDistance = horizontalDistance + verticalDistance;
+                                if (totalDistance < bestDistance) {
+                                    bestDistance = totalDistance;
+                                    bestMatch = channel;
+                                }
+                            }
+                        }
+                    });
+
+                    if (bestMatch) {
+                        currentFocused.classList.remove('focused');
+                        bestMatch.classList.add('focused');
+                        bestMatch.focus();
+                        bestMatch.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        e.preventDefault();
+                    }
+                } else if (key === 'ArrowUp') {
+                    // Move to item in same column in row above
+                    const currentRect = currentFocused.getBoundingClientRect();
+                    const currentCenterX = currentRect.left + currentRect.width / 2;
+                    let bestMatch = null;
+                    let bestDistance = Infinity;
+
+                    channels.forEach((channel, index) => {
+                        if (index < currentIndex) {
+                            const rect = channel.getBoundingClientRect();
+                            const channelCenterX = rect.left + rect.width / 2;
+                            const horizontalDistance = Math.abs(currentCenterX - channelCenterX);
+                            const verticalDistance = currentRect.top - rect.bottom;
+
+                            // Only consider items above current row
+                            if (verticalDistance > 0 && verticalDistance < 100) {
+                                const totalDistance = horizontalDistance + verticalDistance;
+                                if (totalDistance < bestDistance) {
+                                    bestDistance = totalDistance;
+                                    bestMatch = channel;
+                                }
+                            }
+                        }
+                    });
+
+                    if (bestMatch) {
+                        currentFocused.classList.remove('focused');
+                        bestMatch.classList.add('focused');
+                        bestMatch.focus();
+                        bestMatch.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        e.preventDefault();
+                    } else if (currentIndex === 0 && isSearchActive) {
+                        // If at first item and search is active, move back to search input
+                        currentFocused.classList.remove('focused');
+                        activeZone = 'search';
+                        searchInput.focus();
+                        e.preventDefault();
+                    }
+                } else if (key === 'Enter') {
+                    if (isTransitionInProgress) {
+                        e.preventDefault();
+                        return;
+                    }
+                    isTransitionInProgress = true;
+                    playChannel(currentFocused);
+                    e.preventDefault();
+                    setTimeout(() => isTransitionInProgress = false, 500);
+                } else if (e.keyCode === 405 || e.keyCode === 70) {
+                    // Yellow button (405) or F key (70) - toggle favorite
+                    const favoriteIcon = currentFocused.querySelector('.favorite-icon');
+                    if (favoriteIcon) {
+                        const channelId = favoriteIcon.dataset.channelId;
+                        const added = toggleFavorite(channelId);
+                        if (added) {
+                            favoriteIcon.classList.add('favorited');
+                            favoriteIcon.innerHTML = '★';
+                            favoriteIcon.title = translations[currentLang]['remove-from-favorites'];
+                        } else {
+                            favoriteIcon.classList.remove('favorited');
+                            favoriteIcon.innerHTML = '☆';
+                            favoriteIcon.title = translations[currentLang]['add-to-favorites'];
+                        }
+                        e.preventDefault();
+                    }
+                }
+            } else {
+                // List View Navigation (existing logic)
+                if (key === 'ArrowUp') {
+                    if (currentIndex > 0) {
+                        currentFocused.classList.remove('focused');
+                        const newFocused = channels[currentIndex - 1];
+                        newFocused.classList.add('focused');
+                        newFocused.focus();
+                        newFocused.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        localStorage.setItem('selectedChannelIndex', currentIndex - 1);
+                        e.preventDefault();
+                    } else if (currentIndex === 0 && isSearchActive) {
+                        // If at first item and search is active, move back to search input
+                        currentFocused.classList.remove('focused');
+                        activeZone = 'search';
+                        searchInput.focus();
+                        e.preventDefault();
+                    }
+                } else if (key === 'ArrowDown' && currentIndex < channels.length - 1) {
                     currentFocused.classList.remove('focused');
-                    const newFocused = channels[currentIndex - 1];
+                    const newFocused = channels[currentIndex + 1];
                     newFocused.classList.add('focused');
                     newFocused.focus();
                     newFocused.scrollIntoView({ block: 'center', behavior: 'smooth' });
-                    localStorage.setItem('selectedChannelIndex', currentIndex - 1);
+                    localStorage.setItem('selectedChannelIndex', currentIndex + 1);
                     e.preventDefault();
-                } else if (currentIndex === 0 && isSearchActive) {
-                    // If at first item and search is active, move back to search input
-                    currentFocused.classList.remove('focused');
-                    activeZone = 'search';
-                    searchInput.focus();
-                    e.preventDefault();
-                }
-            } else if (key === 'ArrowDown' && currentIndex < channels.length - 1) {
-                currentFocused.classList.remove('focused');
-                const newFocused = channels[currentIndex + 1];
-                newFocused.classList.add('focused');
-                newFocused.focus();
-                newFocused.scrollIntoView({ block: 'center', behavior: 'smooth' });
-                localStorage.setItem('selectedChannelIndex', currentIndex + 1);
-                e.preventDefault();
-            } else if (key === 'ArrowLeft') {
-                // Move back to sidebar zone (or search if active)
-                if (isSearchActive) {
-                    currentFocused.classList.remove('focused');
-                    activeZone = 'search';
-                    searchInput.focus();
-                } else {
-                    activeZone = 'sidebar';
-                    const activeCategory = document.querySelector('.category-item.active');
-                    if (activeCategory) {
-                        activeCategory.classList.add('focused');
-                        activeCategory.focus();
+                } else if (key === 'ArrowLeft') {
+                    // Move back to sidebar zone (or search if active)
+                    if (isSearchActive) {
+                        currentFocused.classList.remove('focused');
+                        activeZone = 'search';
+                        searchInput.focus();
                     } else {
-                        const firstCategory = sidebar.querySelector('.category-item');
-                        if (firstCategory) {
-                            firstCategory.classList.add('focused');
-                            firstCategory.focus();
+                        activeZone = 'sidebar';
+                        const activeCategory = document.querySelector('.category-item.active');
+                        if (activeCategory) {
+                            activeCategory.classList.add('focused');
+                            activeCategory.focus();
+                        } else {
+                            const firstCategory = sidebar.querySelector('.category-item');
+                            if (firstCategory) {
+                                firstCategory.classList.add('focused');
+                                firstCategory.focus();
+                            }
                         }
                     }
-                }
-                e.preventDefault();
-            } else if (key === 'ArrowRight') {
-                // Move to favorite icon
-                const favoriteIcon = currentFocused.querySelector('.favorite-icon');
-                if (favoriteIcon) {
-                    favoriteIcon.tabIndex = 0;
-                    favoriteIcon.focus();
                     e.preventDefault();
-                }
-            } else if (key === 'Enter') {
-                if (isTransitionInProgress) {
-                    e.preventDefault();
-                    return;
-                }
-                isTransitionInProgress = true;
-                playChannel(currentFocused);
-                e.preventDefault();
-                setTimeout(() => isTransitionInProgress = false, 500);
-            } else if (e.keyCode === 405 || e.keyCode === 70) {
-                // Yellow button (405) or F key (70) - toggle favorite
-                const favoriteIcon = currentFocused.querySelector('.favorite-icon');
-                if (favoriteIcon) {
-                    const channelId = favoriteIcon.dataset.channelId;
-                    const added = toggleFavorite(channelId);
-                    if (added) {
-                        favoriteIcon.classList.add('favorited');
-                        favoriteIcon.innerHTML = '★';
-                        favoriteIcon.title = translations[currentLang]['remove-from-favorites'];
-                    } else {
-                        favoriteIcon.classList.remove('favorited');
-                        favoriteIcon.innerHTML = '☆';
-                        favoriteIcon.title = translations[currentLang]['add-to-favorites'];
+                } else if (key === 'ArrowRight') {
+                    // Move to favorite icon
+                    const favoriteIcon = currentFocused.querySelector('.favorite-icon');
+                    if (favoriteIcon) {
+                        favoriteIcon.tabIndex = 0;
+                        favoriteIcon.focus();
+                        e.preventDefault();
                     }
+                } else if (key === 'Enter') {
+                    if (isTransitionInProgress) {
+                        e.preventDefault();
+                        return;
+                    }
+                    isTransitionInProgress = true;
+                    playChannel(currentFocused);
                     e.preventDefault();
+                    setTimeout(() => isTransitionInProgress = false, 500);
+                } else if (e.keyCode === 405 || e.keyCode === 70) {
+                    // Yellow button (405) or F key (70) - toggle favorite
+                    const favoriteIcon = currentFocused.querySelector('.favorite-icon');
+                    if (favoriteIcon) {
+                        const channelId = favoriteIcon.dataset.channelId;
+                        const added = toggleFavorite(channelId);
+                        if (added) {
+                            favoriteIcon.classList.add('favorited');
+                            favoriteIcon.innerHTML = '★';
+                            favoriteIcon.title = translations[currentLang]['remove-from-favorites'];
+                        } else {
+                            favoriteIcon.classList.remove('favorited');
+                            favoriteIcon.innerHTML = '☆';
+                            favoriteIcon.title = translations[currentLang]['add-to-favorites'];
+                        }
+                        e.preventDefault();
+                    }
                 }
             }
             return;
@@ -2213,11 +2618,13 @@ document.addEventListener('DOMContentLoaded', function() {
             if (key === 'ArrowUp') {
                 if (osdFocusedColumn === 'close') {
                     // Return to subtitle column
-                    osdCloseBtn.classList.remove('focused');
+                    if (osdCloseBtn && osdCloseBtn.classList) {
+                        osdCloseBtn.classList.remove('focused');
+                    }
                     osdFocusedColumn = 'subtitle';
                     osdFocusedIndex = 0;
                     const subtitleItems = Array.from(subtitleTracksList.querySelectorAll('.osd-item'));
-                    if (subtitleItems.length > 0) {
+                    if (subtitleItems.length > 0 && subtitleItems[0] && subtitleItems[0].classList) {
                         subtitleItems[0].classList.add('focused');
                     }
                 } else {
@@ -2225,10 +2632,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     const items = Array.from(currentList.querySelectorAll('.osd-item'));
                     if (osdFocusedIndex > 0) {
                         const currentFocused = items[osdFocusedIndex];
-                        currentFocused.classList.remove('focused');
+                        if (currentFocused && currentFocused.classList) {
+                            currentFocused.classList.remove('focused');
+                        }
                         osdFocusedIndex--;
-                        items[osdFocusedIndex].classList.add('focused');
-                        items[osdFocusedIndex].scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        if (items[osdFocusedIndex] && items[osdFocusedIndex].classList) {
+                            items[osdFocusedIndex].classList.add('focused');
+                            items[osdFocusedIndex].scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        }
                     }
                 }
                 e.preventDefault();
@@ -2238,17 +2649,25 @@ document.addEventListener('DOMContentLoaded', function() {
                     const items = Array.from(currentList.querySelectorAll('.osd-item'));
                     if (osdFocusedIndex < items.length - 1) {
                         const currentFocused = items[osdFocusedIndex];
-                        currentFocused.classList.remove('focused');
+                        if (currentFocused && currentFocused.classList) {
+                            currentFocused.classList.remove('focused');
+                        }
                         osdFocusedIndex++;
-                        items[osdFocusedIndex].classList.add('focused');
-                        items[osdFocusedIndex].scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        if (items[osdFocusedIndex] && items[osdFocusedIndex].classList) {
+                            items[osdFocusedIndex].classList.add('focused');
+                            items[osdFocusedIndex].scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        }
                     } else {
                         // Move to Close button
                         const currentFocused = items[osdFocusedIndex];
-                        currentFocused.classList.remove('focused');
+                        if (currentFocused && currentFocused.classList) {
+                            currentFocused.classList.remove('focused');
+                        }
                         osdFocusedColumn = 'close';
-                        osdCloseBtn.classList.add('focused');
-                        osdCloseBtn.focus();
+                        if (osdCloseBtn && osdCloseBtn.classList) {
+                            osdCloseBtn.classList.add('focused');
+                            osdCloseBtn.focus();
+                        }
                     }
                 }
                 e.preventDefault();
@@ -2258,20 +2677,24 @@ document.addEventListener('DOMContentLoaded', function() {
                     const currentList = subtitleTracksList;
                     const items = Array.from(currentList.querySelectorAll('.osd-item'));
                     const currentFocused = items[osdFocusedIndex];
-                    currentFocused.classList.remove('focused');
+                    if (currentFocused && currentFocused.classList) {
+                        currentFocused.classList.remove('focused');
+                    }
                     osdFocusedColumn = 'audio';
                     osdFocusedIndex = 0;
                     const audioItems = Array.from(audioTracksList.querySelectorAll('.osd-item'));
-                    if (audioItems.length > 0) {
+                    if (audioItems.length > 0 && audioItems[0] && audioItems[0].classList) {
                         audioItems[0].classList.add('focused');
                     }
                 } else if (osdFocusedColumn === 'close') {
                     // Switch to subtitle column
-                    osdCloseBtn.classList.remove('focused');
+                    if (osdCloseBtn && osdCloseBtn.classList) {
+                        osdCloseBtn.classList.remove('focused');
+                    }
                     osdFocusedColumn = 'subtitle';
                     osdFocusedIndex = 0;
                     const subtitleItems = Array.from(subtitleTracksList.querySelectorAll('.osd-item'));
-                    if (subtitleItems.length > 0) {
+                    if (subtitleItems.length > 0 && subtitleItems[0] && subtitleItems[0].classList) {
                         subtitleItems[0].classList.add('focused');
                     }
                 }
@@ -2282,11 +2705,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     const currentList = audioTracksList;
                     const items = Array.from(currentList.querySelectorAll('.osd-item'));
                     const currentFocused = items[osdFocusedIndex];
-                    currentFocused.classList.remove('focused');
+                    if (currentFocused && currentFocused.classList) {
+                        currentFocused.classList.remove('focused');
+                    }
                     osdFocusedColumn = 'subtitle';
                     osdFocusedIndex = 0;
                     const subtitleItems = Array.from(subtitleTracksList.querySelectorAll('.osd-item'));
-                    if (subtitleItems.length > 0) {
+                    if (subtitleItems.length > 0 && subtitleItems[0] && subtitleItems[0].classList) {
                         subtitleItems[0].classList.add('focused');
                     }
                 } else if (osdFocusedColumn === 'subtitle') {
@@ -2294,10 +2719,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     const currentList = subtitleTracksList;
                     const items = Array.from(currentList.querySelectorAll('.osd-item'));
                     const currentFocused = items[osdFocusedIndex];
-                    currentFocused.classList.remove('focused');
+                    if (currentFocused && currentFocused.classList) {
+                        currentFocused.classList.remove('focused');
+                    }
                     osdFocusedColumn = 'close';
-                    osdCloseBtn.classList.add('focused');
-                    osdCloseBtn.focus();
+                    if (osdCloseBtn && osdCloseBtn.classList) {
+                        osdCloseBtn.classList.add('focused');
+                        osdCloseBtn.focus();
+                    }
                 }
                 e.preventDefault();
             } else if (key === 'Enter') {
