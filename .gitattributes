@@ -1,0 +1,2 @@
+# keep the bundled libraries byte-for-byte as published
+lib/** -text
