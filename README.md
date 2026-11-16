@@ -6,7 +6,7 @@ A lightweight IPTV player for **LG webOS Smart TVs**. It connects to your own IP
 
 Plain HTML, CSS and JavaScript. No framework, no build step for the app itself.
 
-[Türkçe özet aşağıda](#türkçe-özet)
+**English** · [Türkçe](README.tr.md) · [Changelog / Sürüm notları](CHANGELOG.md)
 
 ## Features
 
@@ -27,13 +27,24 @@ Plain HTML, CSS and JavaScript. No framework, no build step for the app itself.
 **Player**
 - HLS (hls.js) and direct files (mkv, mp4, ...)
 - Audio and subtitle menu, resume prompt, auto "next episode"
-- External Turkish subtitles from The Subtitle Database (no key needed) and Subdl (optional, your own key), subtitle size / colour / background in Settings
+- External Turkish subtitles, no setup needed for movies (see [Subtitle sources](#subtitle-sources)); subtitle size / colour / background in Settings
+- Optional **TMDB** extras with your own free key: cast photos, Turkish plots, episode photos, popular lists
 
 **Settings**
 - Subtitle look, program guide on/off, category manager
 - Account info (status, expiry date, connections)
 - **API keys without editing files**: type TMDB / Subdl keys in Settings (with a "test" button), or scan a **QR code** and enter them on your phone
 - **Log out** (removes login and watch history) and **erase all data**
+
+## Subtitle sources
+
+When you start a movie or an episode, the app looks for a Turkish subtitle in this order and uses the first one that works. A small note on the screen tells you which source answered (or why none did):
+
+1. **Subdl**: only if you added your own free key. Works for movies and series.
+2. **The Subtitle Database** (<https://thesubtitledb.org>): needs no key and no account. **Movies only**: it stores episodes under their own ids, and a series lookup could return the wrong episode, so series are skipped on purpose.
+3. **OpenSubtitles**: only if the developer put a key in the private `config.js`. It is not shown in Settings and users are never asked for a key, because OpenSubtitles does not allow that. Leave it empty in anything you share.
+
+SubSource was tried and dropped for now: its API does not allow requests from a browser (no CORS), so a TV app cannot call it without a proxy.
 
 ## Quick start (development)
 
@@ -59,7 +70,7 @@ cp config.example.js config.js
 # edit config.js and fill in subdlApiKey (and tmdbApiKey)
 ```
 
-`config.js` is in `.gitignore`. Never commit it. Keys typed on the TV win over `config.js`. Without any key the app works, only the online subtitle sources and TMDB extras are off.
+`config.js` is in `.gitignore`. Never commit it. `openSubtitlesApiKey` in it is a developer-only option (see [Subtitle sources](#subtitle-sources)). Keys typed on the TV win over `config.js`. Without any key the app works, only the online subtitle sources and TMDB extras are off.
 
 ### Phone page (GitHub Pages)
 
@@ -124,8 +135,10 @@ A package built **with** your `config.js` contains your keys: keep that `.ipk` t
 ## Known limits
 
 - Subtitles embedded in an mkv file are not exposed by the webOS web player; the app uses the online sources instead.
+- Online subtitles for **series** come from Subdl only (needs your own key). The Subtitle Database is used for movies.
+- Turkish coverage of the free subtitle sources is good for popular international movies and weak for older Turkish titles.
 - The program guide only shows what your provider delivers (many providers fill only some channels). A provider without `xmltv.php` simply has no guide.
-- Tested in a desktop Chromium against a fake Xtream server and a real provider; behaviour on every TV model is not guaranteed.
+- Tested in a desktop Chromium against a fake Xtream server and a real provider. **Not yet tested on a real TV** for versions 2.1 and later; behaviour on every TV model is not guaranteed.
 
 ## Project layout
 
@@ -134,8 +147,11 @@ index.html, app.js, style.css   the app
 appinfo.json                    webOS app manifest (id, version)
 config.example.js               template for private settings (config.js is ignored by git)
 lib/                            hls.js, JSZip, qrcode-generator and their license texts
-docs/pair.html                  phone page for the QR key entry (host with GitHub Pages)
+docs/pair.html                  phone page for the QR key entry + "how to get a key" help (host with GitHub Pages)
+docs/help/img/                  screenshots used by that help
 tools/build.js                  clean package builder
+CHANGELOG.md                    what changed in each version (English / Türkçe)
+README.tr.md                    this file in Turkish
 ```
 
 ## Third-party software
@@ -149,15 +165,3 @@ License texts are in `lib/licenses/`; see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_
 ## Author
 
 **Ahmet Ziya OĞUZ**. The application code has no license file yet; until one is added, all rights are reserved by the author.
-
----
-
-## Türkçe özet
-
-**oguzIPTV**, LG webOS TV'ler için hafif bir IPTV oynatıcısıdır. Kendi aboneliğine (Xtream Codes ya da M3U) bağlanır; kendisi içerik sunmaz.
-
-- **Canlı TV:** program rehberi (sağlayıcının `xmltv.php` dosyasından), alt bant, günlük program listesi (sarı tuş), oynatıcıda kanal listesi (sol tuş), kanal numarasıyla geçiş (0-9), son kanal (yeşil).
-- **Film / dizi:** afiş, puan, süre sunucudan; "Devam et", "Son eklenenler", izlendi işareti, dizide kaldığın bölümden devam.
-- **Ayarlar:** altyazı boyutu/rengi, kategori gizleme ve sabitleme, hesap bilgisi, çıkış yap / tüm verileri sil.
-- **Kurulum:** `config.example.js` dosyasını `config.js` olarak kopyala (anahtarlar isteğe bağlı, GitHub'a gitmez), sonra `node tools/build.js` ile temiz paketi oluştur ve `ares-install` ile TV'ye yükle. Paylaşacağın paket için `--no-config` kullan.
-- **Gizlilik:** giriş bilgileri sadece TV'nin yerel depolamasında durur. Ayarlar → Çıkış yap ile silinir.
