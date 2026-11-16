@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://ntfy.sh; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>oguzIPTV · Anahtarları TV'ye gönder</title>
+<style>
+  body { margin: 0; padding: 20px; font: 17px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: #141414; color: #eee; }
+  main { max-width: 520px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 6px 0 4px; }
+  .sub { color: #9a9a9a; margin: 0 0 18px; font-size: 15px; }
+  label { display: block; margin: 16px 0 4px; font-weight: 600; }
+  label small { font-weight: 400; color: #9a9a9a; }
+  input { width: 100%; box-sizing: border-box; padding: 12px; font-size: 16px; color: #fff; background: #222; border: 1px solid #444; border-radius: 8px; }
+  input:focus { outline: none; border-color: #00c8ff; }
+  button { width: 100%; margin-top: 22px; padding: 14px; font-size: 18px; font-weight: 700; color: #04202a; background: #00c8ff; border: 0; border-radius: 10px; }
+  button:disabled { opacity: .45; }
+  .code { margin: 14px 0; padding: 12px 14px; background: #2a2418; border: 1px solid #ffb74d55; border-radius: 10px; }
+  .code b { display: inline-block; margin-left: 6px; padding: 0 10px; font-size: 26px; letter-spacing: 3px; color: #ffb74d; }
+  .note { margin-top: 18px; font-size: 13px; color: #8a8a8a; }
+  .ok { color: #81c784; } .err { color: #ff8a80; }
+  #msg { min-height: 1.5em; margin-top: 14px; font-weight: 600; }
+  a { color: #5fd3ff; }
+  details { margin-top: 14px; background: #1c1c1c; border: 1px solid #333; border-radius: 10px; padding: 0 14px; }
+  summary { padding: 14px 0; font-weight: 700; cursor: pointer; }
+  details[open] summary { border-bottom: 1px solid #333; margin-bottom: 10px; }
+  details ol { padding-left: 20px; margin: 8px 0 12px; }
+  details li { margin: 6px 0; }
+  details img { display: block; width: 100%; height: auto; margin: 8px 0 14px; border-radius: 8px; border: 1px solid #333; }
+  .warn { color: #ffb74d; font-size: 14px; }
+  .help-title { margin: 26px 0 0; font-size: 18px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 data-tr="Anahtarları TV'ye gönder" data-en="Send keys to your TV">Anahtarları TV'ye gönder</h1>
+  <p class="sub" data-tr="oguzIPTV · yazdıklarını sadece TV'n çözebilir" data-en="oguzIPTV · only your TV can decrypt what you type">oguzIPTV · yazdıklarını sadece TV'n çözebilir</p>
+
+  <div id="bad" class="err" style="display:none" data-tr="Geçersiz bağlantı. TV ekranındaki QR kodu yeniden okut." data-en="Invalid link. Scan the QR code on your TV again."></div>
+
+  <form id="form" autocomplete="off" style="display:none">
+    <div class="code"><span data-tr="Eşleşme kodu" data-en="Pairing code">Eşleşme kodu</span><b id="code">----</b><br>
+      <small data-tr="TV ekranındaki kodla AYNI mı? Değilse hiçbir şey gönderme." data-en="Is it the SAME as on your TV screen? If not, do not send anything.">TV ekranındaki kodla AYNI mı? Değilse hiçbir şey gönderme.</small></div>
+
+    <label for="tmdb">TMDB <small data-tr="(isteğe bağlı)" data-en="(optional)">(isteğe bağlı)</small></label>
+    <input id="tmdb" inputmode="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="API key (v3)">
+
+    <label for="subdl">Subdl <small data-tr="(isteğe bağlı)" data-en="(optional)">(isteğe bağlı)</small></label>
+    <input id="subdl" inputmode="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="API key">
+
+    <button id="send" type="submit" data-tr="TV'ye gönder" data-en="Send to TV">TV'ye gönder</button>
+    <div id="msg"></div>
+  </form>
+
+  <p class="note" data-tr="Anahtarlar bu telefonda şifrelenir (AES-256) ve ntfy.sh üzerinden TV'ne iletilir. Şifre, sadece TV ekranındaki QR kodun içindedir; bu sayfayı barındıran sunucuya ya da aracı servise gitmez. Sayfayı yalnızca kendi TV'nin QR kodundan aç. Anahtarlar ücretsiz: themoviedb.org ve subdl.com. (Altyazı için anahtar şart değil: The Subtitle Database anahtarsız çalışır.)" data-en="The keys are encrypted on this phone (AES-256) and passed to your TV through ntfy.sh. The secret exists only inside the QR code on your TV screen; it is never sent to the server hosting this page or to the relay. Open this page only from your own TV's QR code. Keys are free at themoviedb.org and subdl.com. (No key is needed for subtitles: The Subtitle Database works without one.)"></p>
+
+  <h2 class="help-title l-tr">Anahtar nasıl alınır?</h2>
+  <h2 class="help-title l-en">How to get a key</h2>
+  <p class="sub l-tr">İkisi de ücretsiz ve isteğe bağlı. Altyazı için anahtar şart değil; Subdl sadece ek bir kaynak, TMDB ise oyuncu/özet gibi ekstralar için.</p>
+  <p class="sub l-en">Both are free and optional. Subtitles work without a key; Subdl is an extra source and TMDB adds cast, plots and similar extras.</p>
+
+  <details>
+    <summary><span class="l-tr">TMDB anahtarı (v3)</span><span class="l-en">TMDB key (v3)</span></summary>
+    <ol class="l-tr">
+      <li><a href="https://www.themoviedb.org/login" target="_blank" rel="noopener noreferrer">themoviedb.org</a> adresinde hesap aç (Google ile de olur) ve giriş yap.</li>
+      <li>Sağ üstteki profilin → <b>Ayarlar</b> → soldaki menüden <b>API</b>.</li>
+      <li>Yeşil <b>+ Oluştur</b> düğmesine bas.</li>
+      <li>"Kullanım amacı kişisel mi?" sorusunda <b>Yes – This is for my own personal use only</b> seç.</li>
+      <li>Açılan kısa formu doldur (uygulama adı: oguzIPTV, açıklama: kişisel IPTV oynatıcı).</li>
+      <li>Sayfada <b>API Key</b> (v3) görünür; onu kopyala. "Read Access Token" olan uzun metin değil, kısa olan.</li>
+    </ol>
+    <ol class="l-en">
+      <li>Create an account at <a href="https://www.themoviedb.org/login" target="_blank" rel="noopener noreferrer">themoviedb.org</a> (Google works too) and sign in.</li>
+      <li>Top right profile → <b>Settings</b> → <b>API</b> in the left menu.</li>
+      <li>Press the green <b>+ Create</b> button.</li>
+      <li>For "Is the intended use for personal use?" choose <b>Yes – This is for my own personal use only</b>.</li>
+      <li>Fill the short form (app name: oguzIPTV, description: personal IPTV player).</li>
+      <li>Copy the <b>API Key</b> (v3), not the long "Read Access Token".</li>
+    </ol>
+    <img src="help/img/tmdb-01-login.png" alt="TMDB" loading="lazy">
+    <img src="help/img/tmdb-02-api-personal-use.png" alt="TMDB API" loading="lazy">
+  </details>
+
+  <details>
+    <summary><span class="l-tr">Subdl anahtarı</span><span class="l-en">Subdl key</span></summary>
+    <ol class="l-tr">
+      <li><a href="https://subdl.com" target="_blank" rel="noopener noreferrer">subdl.com</a> adresinde <b>Sign Up</b> ile hesap aç (e-posta, kullanıcı adı, ülke, şifre; robot doğrulamasını geç).</li>
+      <li>Giriş yaptıktan sonra hesap sayfanın üstündeki sekmelerden <b>API</b>'yi aç.</li>
+      <li><b>Default key</b> kutusundaki anahtarı <b>Copy API key</b> ile kopyala.</li>
+    </ol>
+    <ol class="l-en">
+      <li>Sign up at <a href="https://subdl.com" target="_blank" rel="noopener noreferrer">subdl.com</a> (email, username, country, password; pass the robot check).</li>
+      <li>After signing in, open the <b>API</b> tab at the top of your account page.</li>
+      <li>Copy the key in the <b>Default key</b> box with <b>Copy API key</b>.</li>
+    </ol>
+    <img src="help/img/subdl-01-signup.png" alt="Subdl" loading="lazy">
+    <img src="help/img/subdl-02-api-key.png" alt="Subdl API" loading="lazy">
+  </details>
+  <p class="note l-tr">Anahtarı kopyaladıktan sonra yukarıdaki kutuya yapıştır ve "TV'ye gönder"e bas. Anahtarını kimseyle paylaşma ve ekran görüntüsünde gösterme.</p>
+  <p class="note l-en">After copying the key, paste it in the box above and press "Send to TV". Never share your key or show it in screenshots.</p>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  var lang = (navigator.language || 'tr').toLowerCase().indexOf('tr') === 0 ? 'tr' : 'en';
+  Array.prototype.forEach.call(document.querySelectorAll('[data-tr]'), function (el) { el.textContent = el.getAttribute('data-' + lang); });
+  Array.prototype.forEach.call(document.querySelectorAll('.l-tr, .l-en'), function (el) { if (el.className.indexOf('l-' + lang) === -1) el.style.display = 'none'; });
+  var T = function (tr, en) { return lang === 'tr' ? tr : en; };
+
+  var RELAY = 'https://ntfy.sh';   // fixed on purpose: a link must not be able to point this page somewhere else
+  var params = {};
+  location.hash.replace(/^#/, '').split('&').forEach(function (p) { var i = p.indexOf('='); if (i > 0) params[p.slice(0, i)] = p.slice(i + 1); });
+  var topic = params.t || '', secret = params.k || '';
+  var form = document.getElementById('form'), bad = document.getElementById('bad'), msg = document.getElementById('msg');
+
+  function b64urlDecode(str) { str = str.replace(/-/g, '+').replace(/_/g, '/'); while (str.length % 4) str += '='; var bin = atob(str), out = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; }
+  function b64urlEncode(bytes) { var s = ''; for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+
+  if (!/^oguziptv-[A-Za-z0-9_-]{22}$/.test(topic) || !/^[A-Za-z0-9_-]{43}$/.test(secret) || !window.crypto || !crypto.subtle) {
+    bad.style.display = 'block';
+    if (!window.crypto || !crypto.subtle) bad.textContent = T('Bu tarayıcı şifrelemeyi desteklemiyor (HTTPS gerekir).', 'This browser has no encryption support (HTTPS needed).');
+    return;
+  }
+
+  var secretBytes = b64urlDecode(secret);
+  crypto.subtle.digest('SHA-256', secretBytes).then(function (buf) {
+    var h = new Uint8Array(buf);
+    var n = ((h[0] << 24) | (h[1] << 16) | (h[2] << 8) | h[3]) >>> 0;
+    document.getElementById('code').textContent = String(n % 10000).padStart(4, '0');
+    form.style.display = 'block';
+  });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var data = { v: 1, ts: Date.now(), tmdb: val('tmdb'), subdl: val('subdl') };
+    function val(id) { return document.getElementById(id).value.trim().replace(/\s+/g, ''); }
+    var any = false, invalid = false;
+    ['tmdb', 'subdl'].forEach(function (k) { if (data[k]) { any = true; if (!/^[A-Za-z0-9._-]{8,200}$/.test(data[k])) invalid = true; } });
+    msg.className = '';
+    if (!any) { msg.className = 'err'; msg.textContent = T('En az bir anahtar yaz.', 'Type at least one key.'); return; }
+    if (invalid) { msg.className = 'err'; msg.textContent = T('Anahtarda geçersiz karakter var.', 'A key has invalid characters.'); return; }
+    var btn = document.getElementById('send'); btn.disabled = true; msg.textContent = T('Gönderiliyor…', 'Sending…');
+
+    var iv = crypto.getRandomValues(new Uint8Array(12));
+    crypto.subtle.importKey('raw', secretBytes, 'AES-GCM', false, ['encrypt']).then(function (key) {
+      return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv, additionalData: new TextEncoder().encode(topic) }, key, new TextEncoder().encode(JSON.stringify(data)));
+    }).then(function (cipher) {
+      var all = new Uint8Array(12 + cipher.byteLength); all.set(iv, 0); all.set(new Uint8Array(cipher), 12);
+      return fetch(RELAY + '/' + topic, { method: 'POST', body: b64urlEncode(all) });
+    }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      msg.className = 'ok'; msg.textContent = T('Gönderildi ✓ TV ekranına bak.', 'Sent ✓ Look at your TV.');
+      ['tmdb', 'subdl', 'os'].forEach(function (id) { document.getElementById(id).value = ''; });
+    }).catch(function (err) {
+      btn.disabled = false; msg.className = 'err'; msg.textContent = T('Gönderilemedi: ', 'Could not send: ') + (err && err.message ? err.message : err);
+    });
+  });
+})();
+</script>
+</body>
+</html>

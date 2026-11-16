@@ -35,8 +35,8 @@ const files = [
   'appinfo.json', 'index.html', 'app.js', 'style.css',
   'icon.jpg', 'largeIcon.jpg', 'logo.png',
   'assets/placeholder.png',
-  'lib/hls.min.js', 'lib/jszip.min.js',
-  'lib/licenses/hls.js-LICENSE', 'lib/licenses/jszip-LICENSE.markdown',
+  'lib/hls.min.js', 'lib/jszip.min.js', 'lib/qrcode.js',
+  'lib/licenses/hls.js-LICENSE', 'lib/licenses/jszip-LICENSE.markdown', 'lib/licenses/qrcode-generator-LICENSE',
 ];
 
 fs.rmSync(buildDir, { recursive: true, force: true });

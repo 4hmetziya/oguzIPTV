@@ -5,16 +5,29 @@ document.addEventListener('DOMContentLoaded', function() {
     const PLACEHOLDER_IMG = 'assets/placeholder.png';
 
     // Keep in sync with appinfo.json (tools/build.js checks it)
-    const APP_VERSION = '2.0.0';
+    const APP_VERSION = '2.4.0';
 
     // Private settings come from config.js (not committed; see config.example.js)
     const CONFIG = window.OGUZ_CONFIG || {};
 
     // External subtitle API configuration (Subdl)
-    const SUBTITLE_API_KEY = CONFIG.subdlApiKey || '';
+    // API keys: the ones typed in Settings / received from the phone (stored on this TV) win over config.js
+    const USER_KEYS_KEY = 'userKeys';
+    function readUserKeys() {
+        try { return JSON.parse(localStorage.getItem(USER_KEYS_KEY)) || {}; } catch (e) { return {}; }
+    }
+    let SUBTITLE_API_KEY = '';
+    let OPEN_SUBTITLES_API_KEY = '';
+    let TMDB_KEY = '';
+    function refreshApiKeys() {
+        const own = readUserKeys();
+        SUBTITLE_API_KEY = own.subdl || CONFIG.subdlApiKey || '';
+        OPEN_SUBTITLES_API_KEY = CONFIG.openSubtitlesApiKey || ''; // developer key only (config.js); users are not asked for one
+        TMDB_KEY = own.tmdb || CONFIG.tmdbApiKey || '';
+    }
+    refreshApiKeys();
 
     // OpenSubtitles API configuration
-    const OPEN_SUBTITLES_API_KEY = CONFIG.openSubtitlesApiKey || '';
     const APP_USER_AGENT = 'oguzIPTV_v1';
 
     // Track active blob URLs for cleanup
@@ -642,6 +655,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Returns true when the key was handled
     function handleColorKeys(e, keyCode) {
         const inPlayer = activeZone === 'player' || activeZone === 'custom-osd';
+        if (inPlayer && keyCode === 406) {                            // blue: connection graph
+            toggleNetPanel();
+            e.preventDefault();
+            return true;
+        }
         if (inPlayer && isLiveStreamUrl(currentStreamUrl)) {
             const digit = digitFromKey(e, keyCode);
             if (digit !== null) {                                     // 0-9: jump to a channel number
@@ -723,6 +741,344 @@ document.addEventListener('DOMContentLoaded', function() {
             span.appendChild(document.createTextNode(text));
             bar.appendChild(span);
         });
+    }
+
+    // ---- TMDB (optional): richer details from themoviedb.org ----
+    // Needs your own key in the private config.js (tmdbApiKey). Without it nothing here runs and no request is made.
+    // This product uses the TMDB API but is not endorsed or certified by TMDB.
+    const TMDB_API = (CONFIG.tmdbBaseUrl || 'https://api.themoviedb.org/3').replace(/\/+$/, '');
+    const TMDB_IMG = (CONFIG.tmdbImageBase || 'https://image.tmdb.org/t/p').replace(/\/+$/, '') + '/';
+    const TMDB_CACHE_KEY = 'tmdbCache';
+    const TMDB_TTL = 7 * 24 * 3600 * 1000;   // details change rarely
+    const TMDB_LIST_TTL = 6 * 3600 * 1000;   // trending lists
+    const TMDB_CACHE_MAX = 160;
+    let tmdbCache = {};
+    try { tmdbCache = JSON.parse(localStorage.getItem(TMDB_CACHE_KEY)) || {}; } catch (e) { tmdbCache = {}; }
+    let currentTmdbTvId = null;   // TMDB id of the series shown in the details window
+
+    function tmdbCacheGet(key, ttl) {
+        const entry = tmdbCache[key];
+        return entry && Date.now() - entry.t < (ttl || TMDB_TTL) ? entry.v : undefined;
+    }
+
+    function tmdbCacheSet(key, value) {
+        delete tmdbCache[key];
+        tmdbCache[key] = { t: Date.now(), v: value };
+        const keys = Object.keys(tmdbCache);
+        while (keys.length > TMDB_CACHE_MAX) delete tmdbCache[keys.shift()];
+        try { localStorage.setItem(TMDB_CACHE_KEY, JSON.stringify(tmdbCache)); } catch (e) { /* quota */ }
+    }
+
+    async function tmdbGet(path, params) {
+        const query = new URLSearchParams(Object.assign({ api_key: TMDB_KEY, language: 'tr-TR' }, params || {}));
+        const response = await fetch(TMDB_API + path + '?' + query.toString());
+        if (!response.ok) throw new Error('TMDB HTTP ' + response.status);
+        return response.json();
+    }
+
+    function tmdbImg(path, size) {
+        return path ? TMDB_IMG + size + path : null;
+    }
+
+    // "Mahsun J EXXEN", "100 Things - 100 Dinge - 2018", "Karma (2025)" -> comparable text
+    function normTitle(s) {
+        return String(s || '').toLowerCase()
+            .replace(/ı/g, 'i').replace(/ş/g, 's').replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ö/g, 'o').replace(/ç/g, 'c')
+            .replace(/[\(\[]?\b(19|20)\d{2}\b[\)\]]?\s*$/, ' ')
+            .replace(/\b(exxen|netflix|gain|blutv|disney|prime|amazon|hbo|max|tabii|tod|mubi|apple)\b/g, ' ')
+            .replace(/&/g, ' and ')
+            .replace(/[^a-z0-9]+/g, '');
+    }
+
+    function pickCertification(results, countries) {
+        for (const c of countries) {
+            const hit = (results || []).find(r => r.iso_3166_1 === c);
+            if (!hit) continue;
+            const list = hit.release_dates || [];
+            const withCert = list.find(x => x.certification);
+            if (withCert) return withCert.certification;
+            if (hit.rating) return hit.rating;
+        }
+        return '';
+    }
+
+    async function tmdbMovie(id) {
+        const key = 'm:' + id;
+        const cached = tmdbCacheGet(key);
+        if (cached) return cached;
+        const d = await tmdbGet('/movie/' + id, { append_to_response: 'credits,release_dates' });
+        let overview = d.overview || '';
+        if (!overview) {
+            try { overview = (await tmdbGet('/movie/' + id, { language: 'en-US' })).overview || ''; } catch (e) { /* keep empty */ }
+        }
+        const crew = (d.credits && d.credits.crew) || [];
+        const director = crew.find(c => c.job === 'Director');
+        const value = {
+            kind: 'movie', id: d.id, title: d.title, tagline: d.tagline || '', overview: overview,
+            year: (d.release_date || '').slice(0, 4), runtime: d.runtime || 0,
+            genres: (d.genres || []).map(g => g.name), rating: d.vote_average ? +d.vote_average.toFixed(1) : null,
+            backdrop: d.backdrop_path || null, poster: d.poster_path || null,
+            cert: pickCertification(d.release_dates && d.release_dates.results, ['TR', 'US']),
+            cast: ((d.credits && d.credits.cast) || []).slice(0, 8).map(c => ({ n: c.name, c: c.character, p: c.profile_path })),
+            director: director ? director.name : ''
+        };
+        tmdbCacheSet(key, value);
+        return value;
+    }
+
+    async function tmdbTv(id) {
+        const key = 't:' + id;
+        const cached = tmdbCacheGet(key);
+        if (cached) return cached;
+        const d = await tmdbGet('/tv/' + id, { append_to_response: 'aggregate_credits,content_ratings' });
+        let overview = d.overview || '';
+        if (!overview) {
+            try { overview = (await tmdbGet('/tv/' + id, { language: 'en-US' })).overview || ''; } catch (e) { /* keep empty */ }
+        }
+        const next = d.next_episode_to_air;
+        const value = {
+            kind: 'tv', id: d.id, title: d.name, tagline: d.tagline || '', overview: overview,
+            year: (d.first_air_date || '').slice(0, 4), status: d.status || '',
+            seasons: d.number_of_seasons || 0, episodes: d.number_of_episodes || 0,
+            runtime: (d.episode_run_time && d.episode_run_time[0]) || 0,
+            genres: (d.genres || []).map(g => g.name), rating: d.vote_average ? +d.vote_average.toFixed(1) : null,
+            backdrop: d.backdrop_path || null, poster: d.poster_path || null,
+            cert: pickCertification(d.content_ratings && d.content_ratings.results, ['TR', 'US']),
+            cast: ((d.aggregate_credits && d.aggregate_credits.cast) || []).slice(0, 8).map(c => ({ n: c.name, c: (c.roles && c.roles[0] && c.roles[0].character) || '', p: c.profile_path })),
+            director: (d.created_by || []).map(c => c.name).slice(0, 3).join(', '),
+            network: (d.networks && d.networks[0] && d.networks[0].name) || '',
+            next: next ? { d: next.air_date, s: next.season_number, e: next.episode_number } : null
+        };
+        tmdbCacheSet(key, value);
+        return value;
+    }
+
+    // Looks a title up by name (used for series, whose list has no TMDB id, and as a fallback for movies)
+    async function tmdbFind(kind, name, year) {
+        const query = String(name || '').trim();
+        if (!query) return null;
+        const key = 'f:' + kind + ':' + normTitle(query) + ':' + (year || '');
+        const cached = tmdbCacheGet(key);
+        if (cached !== undefined) return cached || null;
+        const params = { query: query };
+        if (year) params[kind === 'movie' ? 'year' : 'first_air_date_year'] = year;
+        let results = (await tmdbGet('/search/' + kind, params)).results || [];
+        if (results.length === 0 && year) { // the year in a provider's title is sometimes off
+            delete params[kind === 'movie' ? 'year' : 'first_air_date_year'];
+            results = (await tmdbGet('/search/' + kind, params)).results || [];
+        }
+        const q = normTitle(query);
+        const hit = results.find(r => {
+            const t = normTitle(r.title || r.name);
+            const o = normTitle(r.original_title || r.original_name);
+            return t === q || o === q || (q.length >= 5 && t.length >= 5 && (t.indexOf(q) === 0 || q.indexOf(t) === 0));
+        });
+        tmdbCacheSet(key, hit ? hit.id : 0);
+        return hit ? hit.id : null;
+    }
+
+    async function tmdbSeason(tvId, number) {
+        const key = 's:' + tvId + ':' + number;
+        const cached = tmdbCacheGet(key);
+        if (cached) return cached;
+        const d = await tmdbGet('/tv/' + tvId + '/season/' + number);
+        const value = (d.episodes || []).map(e => ({
+            e: e.episode_number, n: e.name || '', o: e.overview || '', s: e.still_path || null,
+            d: e.air_date || '', r: e.runtime || 0, v: e.vote_average ? +e.vote_average.toFixed(1) : null
+        }));
+        tmdbCacheSet(key, value);
+        return value;
+    }
+
+    // ---- details window ----
+    const vodTagline = document.getElementById('vod-tagline');
+    const vodCert = document.getElementById('vod-cert');
+    const vodCast = document.getElementById('vod-cast');
+    const vodStatus = document.getElementById('vod-status');
+    const episodeOverview = document.getElementById('episode-overview');
+
+    function resetTmdbModal() {
+        vodTagline.textContent = '';
+        vodCert.textContent = '';
+        vodCast.innerHTML = '';
+        vodStatus.textContent = '';
+        episodeOverview.textContent = '';
+        currentTmdbTvId = null;
+    }
+
+    function applyTmdbToModal(d) {
+        if (d.tagline) vodTagline.textContent = d.tagline;
+        if (d.cert) vodCert.textContent = d.cert;
+        if (d.rating) vodRating.textContent = d.rating.toFixed(1);
+        if (!vodPlot.textContent && d.overview) vodPlot.textContent = d.overview;
+        if (!vodYear.textContent && d.year) vodYear.textContent = d.year;
+        if (!vodGenres.textContent && d.genres.length) vodGenres.textContent = d.genres.slice(0, 3).join(' • ');
+        if (!vodDuration.textContent && d.runtime) vodDuration.textContent = formatDuration(d.runtime * 60);
+        if (d.backdrop) vodModalBackdrop.style.backgroundImage = 'url(' + tmdbImg(d.backdrop, 'w1280') + ')';
+        if (d.poster && /placeholder\.png/.test(vodPoster.src)) vodPoster.src = tmdbImg(d.poster, 'w500');
+        if (d.director && d.kind === 'movie') vodCredits.textContent = tx('Yönetmen: ', 'Director: ') + d.director;
+        else if (d.director && !vodCredits.textContent) vodCredits.textContent = tx('Yaratıcı: ', 'Created by: ') + d.director;
+
+        const bits = [];
+        if (d.kind === 'tv') {
+            const running = d.status === 'Returning Series';
+            bits.push(running ? tx('Devam ediyor', 'Ongoing') : (d.status === 'Ended' ? tx('Tamamlandı', 'Ended') : d.status));
+            if (d.seasons) bits.push(d.seasons + tx(' sezon', ' seasons'));
+            if (d.episodes) bits.push(d.episodes + tx(' bölüm', ' episodes'));
+            if (d.network) bits.push(d.network);
+            if (d.next && d.next.d) bits.push(tx('Sonraki bölüm: ', 'Next episode: ') + new Date(d.next.d).toLocaleDateString(currentLang === 'en' ? 'en-GB' : 'tr-TR', { day: 'numeric', month: 'long' }));
+        }
+        vodStatus.textContent = bits.filter(Boolean).join('  ·  ');
+
+        vodCast.innerHTML = '';
+        (d.cast || []).slice(0, 6).forEach(person => {
+            const card = document.createElement('div');
+            card.className = 'cast-card';
+            const photo = document.createElement('img');
+            photo.className = 'cast-photo';
+            photo.alt = '';
+            if (person.p) photo.src = tmdbImg(person.p, 'w185'); else photo.src = PLACEHOLDER_IMG;
+            const name = document.createElement('div');
+            name.className = 'cast-name';
+            name.textContent = person.n;
+            const role = document.createElement('div');
+            role.className = 'cast-role';
+            role.textContent = person.c || '';
+            card.appendChild(photo);
+            card.appendChild(name);
+            card.appendChild(role);
+            vodCast.appendChild(card);
+        });
+    }
+
+    async function tmdbForMovie(activeItem, parsed, serverTmdbId, token) {
+        if (!TMDB_KEY) return;
+        try {
+            let id = serverTmdbId;
+            if (!id) id = await tmdbFind('movie', parsed.title || activeItem.name, parsed.year);
+            if (!id) return;
+            const d = await tmdbMovie(id);
+            if (token !== vodMetaToken) return;
+            applyTmdbToModal(d);
+        } catch (error) {
+            console.log('TMDB movie failed:', error);
+        }
+    }
+
+    async function tmdbForSeries(activeItem, parsed, serverTmdbId, token) {
+        if (!TMDB_KEY) return;
+        try {
+            let id = serverTmdbId;
+            if (!id) id = await tmdbFind('tv', parsed.title || activeItem.name, activeItem.year || parsed.year);
+            if (!id) return;
+            const d = await tmdbTv(id);
+            if (token !== vodMetaToken) return;
+            currentTmdbTvId = id;
+            applyTmdbToModal(d);
+            enhanceEpisodes();
+        } catch (error) {
+            console.log('TMDB series failed:', error);
+        }
+    }
+
+    // Episode photos, Turkish titles and summaries for the season that is shown
+    async function enhanceEpisodes() {
+        const tvId = currentTmdbTvId;
+        if (!TMDB_KEY || !tvId) return;
+        const activeSeason = document.querySelector('.season-btn.active');
+        const season = activeSeason ? parseInt(activeSeason.dataset.season, 10) : 1;
+        let list;
+        try { list = await tmdbSeason(tvId, season); } catch (error) { return; }
+        if (tvId !== currentTmdbTvId) return;
+        modalEpisodesSlider.querySelectorAll('.episode-card').forEach(card => {
+            let ep = {};
+            try { ep = JSON.parse(card.dataset.channelData || '{}'); } catch (e) { /* ignore */ }
+            const info = list.find(x => x.e === ep.episode_num || x.e === ep.episode);
+            if (!info) return;
+            const thumb = card.querySelector('.episode-thumb');
+            if (info.s && thumb) thumb.src = tmdbImg(info.s, 'w300');
+            const title = card.querySelector('.episode-title');
+            if (title && info.n && (!ep.title || /S\d{1,2}\s*-?\s*E\d{1,3}/i.test(ep.title))) title.textContent = info.n;
+            const number = card.querySelector('.episode-number');
+            const extra = [];
+            if (info.r) extra.push(info.r + tx(' dk', ' min'));
+            if (info.d) extra.push(new Date(info.d).toLocaleDateString(currentLang === 'en' ? 'en-GB' : 'tr-TR', { day: 'numeric', month: 'short', year: 'numeric' }));
+            if (number && extra.length) number.textContent = 'S' + (ep.season || season) + ' E' + (ep.episode_num || ep.episode) + '  ·  ' + extra.join('  ·  ');
+            card.dataset.overview = info.o || '';
+        });
+        syncEpisodeOverview();
+    }
+
+    function syncEpisodeOverview() {
+        const focused = modalEpisodesSlider.querySelector('.episode-card.focused') || modalEpisodesSlider.querySelector('.episode-card.suggested');
+        episodeOverview.textContent = focused && focused.dataset.overview ? focused.dataset.overview : '';
+    }
+
+    // the details window scrolls when it is taller than the screen: back on the season buttons -> show the top again
+    const vodModalContent = document.querySelector('.vod-modal-content');
+    document.getElementById('season-selector').addEventListener('focusin', () => {
+        if (vodModalContent) vodModalContent.scrollTop = 0;
+    });
+
+    modalEpisodesSlider.addEventListener('focusin', (e) => {
+        const card = e.target && e.target.closest ? e.target.closest('.episode-card') : null;
+        episodeOverview.textContent = card && card.dataset.overview ? card.dataset.overview : '';
+    });
+
+    // ---- "Popular" lists from TMDB, shown only with titles your provider really has ----
+    async function tmdbPopularTitles(kind) {
+        const key = 'p:' + kind;
+        const cached = tmdbCacheGet(key, TMDB_LIST_TTL);
+        if (cached) return cached;
+        const calls = kind === 'movies' ? ['/trending/movie/week'] :
+            (kind === 'trtv' ? ['/discover/tv'] : ['/trending/tv/week']);
+        const extra = kind === 'trtv' ? { with_origin_country: 'TR', sort_by: 'popularity.desc' } : {};
+        const titles = [];
+        for (const path of calls) {
+            for (const page of [1, 2, 3]) {
+                const data = await tmdbGet(path, Object.assign({ page: page }, extra));
+                (data.results || []).forEach(r => titles.push({
+                    t: r.title || r.name, o: r.original_title || r.original_name,
+                    y: ((r.release_date || r.first_air_date || '') + '').slice(0, 4)
+                }));
+            }
+        }
+        tmdbCacheSet(key, titles);
+        return titles;
+    }
+
+    function matchCatalog(titles, catalog) {
+        const index = catalog.map(item => ({ item: item, key: normTitle(item.name) })).filter(x => x.key.length >= 3);
+        const used = new Set();
+        const matched = [];
+        titles.forEach(t => {
+            const keys = [normTitle(t.t), normTitle(t.o)].filter(k => k.length >= 3);
+            let hit = index.find(x => keys.indexOf(x.key) !== -1 && !used.has(x.item.id));
+            if (!hit) { // provider titles often carry extra words ("... EXXEN"): accept a prefix match for longer titles
+                hit = index.find(x => !used.has(x.item.id) && keys.some(k => k.length >= 6 && (x.key.indexOf(k) === 0 || (x.key.length >= 6 && k.indexOf(x.key) === 0))));
+            }
+            if (hit) { used.add(hit.item.id); matched.push(hit.item); }
+        });
+        return matched;
+    }
+
+    async function showTmdbPopular(kind, serverUrl, username, password) {
+        loadingIndicator.style.display = 'block';
+        loadingIndicator.querySelector('p').textContent = 'Kanallar yükleniyor...';
+        errorMessage.style.display = 'none';
+        try {
+            const titles = await tmdbPopularTitles(kind);
+            const action = currentContentType === 'series' ? 'get_series' : 'get_vod_streams';
+            const data = await getCatalog(serverUrl, username, password, action);
+            const catalog = Array.isArray(data) ? data.map(item => mapStreamItem(item, serverUrl, username, password)) : [];
+            allStreamsCache = catalog;
+            showChannelList(matchCatalog(titles, catalog));
+        } catch (error) {
+            showError('Bağlantı hatası: ' + error.message);
+        } finally {
+            loadingIndicator.style.display = 'none';
+            loadingIndicator.querySelector('p').textContent = 'Yükleniyor...';
+        }
     }
 
     // ---- Category manager: hide categories you never use, pin favourite ones to the top ----
@@ -859,6 +1215,351 @@ document.addEventListener('DOMContentLoaded', function() {
         e.preventDefault();
     }
 
+    // ---- API keys: typed in Settings or sent from the phone (QR) ----
+    // Keys stored on this TV (localStorage) win over the optional config.js.
+    const KEY_DEFS = {
+        tmdb: {
+            title: () => tx('TMDB API anahtarı (v3)', 'TMDB API key (v3)'),
+            help: () => tx('Ücretsiz: themoviedb.org → Ayarlar → API (kişisel kullanım). Adım adım anlatım: QR ile açılan telefon sayfasında. Oyuncu fotoğrafları, Türkçe özetler ve popüler listeler için.', 'Free: themoviedb.org → Settings → API (personal use). Step by step on the phone page opened by the QR code. For cast photos, plots and popular lists.'),
+            fromConfig: () => CONFIG.tmdbApiKey || ''
+        },
+        subdl: {
+            title: () => tx('Subdl API anahtarı', 'Subdl API key'),
+            help: () => tx('Ücretsiz: subdl.com → API. İsteğe bağlı ek altyazı kaynağı (anahtarsız da altyazı gelir). Adım adım anlatım: QR ile açılan telefon sayfasında.', 'Free: subdl.com → API. Optional extra subtitle source (subtitles also work without a key). Step by step on the phone page opened by the QR code.'),
+            fromConfig: () => CONFIG.subdlApiKey || ''
+        }
+    };
+
+    function keyStatusText(name) {
+        const own = readUserKeys()[name];
+        if (own) return tx('ayarlı ', 'set ') + '••••' + own.slice(-4);
+        if (KEY_DEFS[name].fromConfig()) return tx('config.js\'ten', 'from config.js');
+        return tx('yok', 'not set');
+    }
+
+    const keyEntry = document.getElementById('key-entry');
+    const keyInput = document.getElementById('key-entry-input');
+    const keyStatusEl = document.getElementById('key-entry-status');
+    const keyButtons = Array.from(document.querySelectorAll('#key-entry .ke-btn'));
+    let keyEntryName = null;
+    let keyEntryDone = null;
+
+    function openKeyEntry(name, onClose) {
+        keyEntryName = name;
+        keyEntryDone = onClose || null;
+        document.getElementById('key-entry-title').textContent = KEY_DEFS[name].title();
+        document.getElementById('key-entry-help').textContent = KEY_DEFS[name].help();
+        keyInput.value = readUserKeys()[name] || '';
+        keyStatusEl.textContent = '';
+        keyStatusEl.style.color = '';
+        keyButtons.forEach(b => b.classList.remove('focused'));
+        keyEntry.style.display = 'flex';
+        activeZone = 'keyentry';
+        keyInput.focus();
+    }
+
+    function closeKeyEntry() {
+        keyEntry.style.display = 'none';
+        keyInput.blur();
+        activeZone = 'topnav';
+        flushCategoryRefresh();
+        const done = keyEntryDone;
+        keyEntryDone = null;
+        if (done) done();
+    }
+
+    function setKeyStatus(text, ok) {
+        keyStatusEl.textContent = text;
+        keyStatusEl.style.color = ok === true ? '#81c784' : (ok === false ? '#ff8a80' : '');
+    }
+
+    function cleanKey(raw) {
+        return String(raw || '').trim().replace(/\s+/g, '');
+    }
+
+    async function testApiKey(name, key) {
+        try {
+            if (name === 'tmdb') {
+                const r = await fetch(TMDB_API + '/configuration?api_key=' + encodeURIComponent(key));
+                return r.ok ? { ok: true } : { ok: false, msg: 'HTTP ' + r.status };
+            }
+            if (name === 'subdl') {
+                const r = await fetch('https://api.subdl.com/api/v1/subtitles?api_key=' + encodeURIComponent(key) + '&film_name=test&languages=tr');
+                let d = null;
+                try { d = await r.json(); } catch (e) { /* not json */ }
+                return r.ok && d && d.status !== false ? { ok: true } : { ok: false, msg: (d && d.error) || 'HTTP ' + r.status };
+            }
+            return { ok: false, msg: 'unknown key type' };
+        } catch (error) {
+            return { ok: false, msg: error && error.message ? error.message : String(error) };
+        }
+    }
+
+    async function testKeyEntry() {
+        const key = cleanKey(keyInput.value);
+        if (!key) { setKeyStatus(tx('Önce anahtarı yaz.', 'Type the key first.'), false); return; }
+        setKeyStatus(tx('Sınanıyor…', 'Testing…'));
+        const result = await testApiKey(keyEntryName, key);
+        if (activeZone !== 'keyentry') return;
+        setKeyStatus(result.ok ? tx('Anahtar geçerli ✓', 'Key is valid ✓') : tx('Geçersiz ✗ (', 'Invalid ✗ (') + result.msg + ')', result.ok);
+    }
+
+    let categoriesDirty = false;
+
+    function applyUserKeyChange() {
+        refreshApiKeys();
+        categoriesDirty = true; // the sidebar shows the TMDB lists only while there is a key; redrawn once the window closes
+    }
+
+    // redrawing the sidebar moves the focus, so it waits until no window is open
+    function flushCategoryRefresh() {
+        if (!categoriesDirty) return;
+        categoriesDirty = false;
+        if (lastCategories[currentContentType] && mainContent.style.display !== 'none') showCategories(lastCategories[currentContentType], true);
+    }
+
+    function saveKeyEntry() {
+        const key = cleanKey(keyInput.value);
+        if (!key) { setKeyStatus(tx('Önce anahtarı yaz.', 'Type the key first.'), false); return; }
+        if (!/^[A-Za-z0-9._-]{8,200}$/.test(key)) { setKeyStatus(tx('Anahtarda geçersiz karakter var.', 'The key has invalid characters.'), false); return; }
+        const keys = readUserKeys();
+        keys[keyEntryName] = key;
+        writeJsonStore(USER_KEYS_KEY, keys);
+        applyUserKeyChange();
+        setKeyStatus(tx('Kaydedildi ✓', 'Saved ✓'), true);
+        setTimeout(() => { if (activeZone === 'keyentry') closeKeyEntry(); }, 700);
+    }
+
+    function clearKeyEntry() {
+        const keys = readUserKeys();
+        delete keys[keyEntryName];
+        writeJsonStore(USER_KEYS_KEY, keys);
+        keyInput.value = '';
+        applyUserKeyChange();
+        setKeyStatus(tx('Anahtar silindi.', 'Key removed.'), true);
+    }
+
+    function handleKeyEntryKey(e, key, keyCode, isEnterKey) {
+        const focusedBtn = keyButtons.findIndex(b => b.classList.contains('focused'));
+        const inInput = document.activeElement === keyInput;
+        const focusButton = (i) => {
+            keyButtons.forEach(b => b.classList.remove('focused'));
+            if (i >= 0) { keyButtons[i].classList.add('focused'); keyButtons[i].focus(); }
+        };
+        if (key === 'Escape' || key === 'Backspace' && !inInput || keyCode === 27 || keyCode === 461 || keyCode === 10009) {
+            closeKeyEntry();
+        } else if (inInput) {
+            if (key === 'ArrowDown' || keyCode === 40 || key === 'Enter' || isEnterKey) {
+                focusButton(0);
+            } else {
+                return; // letters, Backspace, arrows inside the text: let the input handle them
+            }
+        } else if (key === 'ArrowLeft' || keyCode === 37) {
+            focusButton(Math.max(0, focusedBtn - 1));
+        } else if (key === 'ArrowRight' || keyCode === 39) {
+            focusButton(Math.min(keyButtons.length - 1, focusedBtn + 1));
+        } else if (key === 'ArrowUp' || keyCode === 38) {
+            focusButton(-1);
+            keyInput.focus();
+        } else if (key === 'Enter' || isEnterKey) {
+            if (focusedBtn >= 0) keyButtons[focusedBtn].click();
+        } else {
+            return;
+        }
+        e.preventDefault();
+    }
+
+    keyButtons.forEach(b => b.addEventListener('click', () => {
+        const action = b.dataset.action;
+        if (action === 'save') saveKeyEntry();
+        else if (action === 'test') testKeyEntry();
+        else if (action === 'clear') clearKeyEntry();
+        else closeKeyEntry();
+    }));
+
+    // ---- Pair with the phone: a QR code opens a small page where the keys are typed on the phone ----
+    // The page encrypts them (AES-GCM) with a secret that only lives in the QR code (after the "#", so it is never sent
+    // to any server) and drops the ciphertext on a public relay (ntfy.sh); the TV picks it up and decrypts it.
+    const PAIR_PAGE = CONFIG.pairPageUrl || 'https://4hmetziya.github.io/oguzIPTV/pair.html';
+    const PAIR_RELAY = 'https://ntfy.sh';
+    const PAIR_TTL = 5 * 60 * 1000;
+    const pairModal = document.getElementById('pair-modal');
+    let pair = null;
+
+    function b64urlEncode(bytes) {
+        let s = '';
+        for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+        return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    function b64urlDecode(str) {
+        let s = String(str).replace(/-/g, '+').replace(/_/g, '/');
+        while (s.length % 4) s += '=';
+        const bin = atob(s);
+        const out = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+        return out;
+    }
+
+    // four digits both screens show, so you can tell a QR code from another TV (or a fake one) apart
+    async function pairCodeOf(secretBytes) {
+        const h = new Uint8Array(await crypto.subtle.digest('SHA-256', secretBytes));
+        const n = ((h[0] << 24) | (h[1] << 16) | (h[2] << 8) | h[3]) >>> 0;
+        return String(n % 10000).padStart(4, '0');
+    }
+
+    function drawQr(canvas, text) {
+        const qr = qrcode(0, 'M');
+        qr.addData(text);
+        qr.make();
+        const n = qr.getModuleCount();
+        const size = canvas.width;
+        const cell = Math.floor(size / (n + 8));
+        const offset = Math.floor((size - cell * n) / 2);
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, size, size);
+        ctx.fillStyle = '#000000';
+        for (let r = 0; r < n; r++) {
+            for (let c = 0; c < n; c++) {
+                if (qr.isDark(r, c)) ctx.fillRect(offset + c * cell, offset + r * cell, cell, cell);
+            }
+        }
+    }
+
+    function setPairStatus(text, ok) {
+        const el = document.getElementById('pair-status');
+        el.textContent = text;
+        el.style.color = ok === true ? '#81c784' : (ok === false ? '#ff8a80' : '');
+    }
+
+    function stopPairing() {
+        if (pair) {
+            clearInterval(pair.timer);
+            if (pair.abort) pair.abort.abort();
+            pair.stopped = true;
+        }
+        pair = null;
+        if (pairModal) delete pairModal.dataset.pairUrl; // the secret is not needed any more
+    }
+
+    async function decryptPairMessage(message, state) {
+        try {
+            const bytes = b64urlDecode(message);
+            const plain = await crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv: bytes.slice(0, 12), additionalData: new TextEncoder().encode(state.topic) },
+                state.key, bytes.slice(12));
+            const data = JSON.parse(new TextDecoder().decode(plain));
+            if (data.v !== 1 || typeof data.ts !== 'number' || Math.abs(Date.now() - data.ts) > PAIR_TTL + 60000) return null;
+            return data;
+        } catch (e) {
+            return null; // not ours / damaged: ignore
+        }
+    }
+
+    function applyPairedKeys(data) {
+        const keys = readUserKeys();
+        const names = [];
+        [['subdl', 'Subdl'], ['tmdb', 'TMDB']].forEach(([k, label]) => {
+            const value = cleanKey(data[k]);
+            if (value && /^[A-Za-z0-9._-]{8,200}$/.test(value)) { keys[k] = value; names.push(label); }
+        });
+        if (names.length === 0) return false;
+        writeJsonStore(USER_KEYS_KEY, keys);
+        applyUserKeyChange();
+        setPairStatus(tx('Alındı ✓ ', 'Received ✓ ') + names.join(', '), true);
+        return true;
+    }
+
+    // one long-lived request to the relay; the TV is told the moment the phone sends something
+    async function listenForPairing(state) {
+        let failures = 0;
+        while (pair === state && !state.stopped && Date.now() < state.until && failures < 6) {
+            state.abort = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            try {
+                const response = await fetch(PAIR_RELAY + '/' + state.topic + '/json?since=all', state.abort ? { signal: state.abort.signal } : {});
+                if (!response.ok) throw new Error('HTTP ' + response.status);
+                failures = 0;
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                for (;;) {
+                    const chunk = await reader.read();
+                    if (chunk.done) break;
+                    buffer += decoder.decode(chunk.value, { stream: true });
+                    let at;
+                    while ((at = buffer.indexOf('\n')) >= 0) {
+                        const line = buffer.slice(0, at).trim();
+                        buffer = buffer.slice(at + 1);
+                        if (!line) continue;
+                        let event;
+                        try { event = JSON.parse(line); } catch (e) { continue; }
+                        if (event.event !== 'message' || !event.message || state.seen[event.id]) continue;
+                        state.seen[event.id] = true;
+                        const data = await decryptPairMessage(event.message, state);
+                        if (data && applyPairedKeys(data)) {
+                            stopPairing();
+                            return;
+                        }
+                    }
+                }
+            } catch (error) {
+                if (pair !== state || state.stopped) return;
+                failures++;
+            }
+            await new Promise(resolve => setTimeout(resolve, 2500));
+        }
+        if (pair === state && !state.stopped && Date.now() < state.until) setPairStatus(tx('Bağlantı kurulamadı. Elle girmeyi dene.', 'Could not connect. Try typing it in.'), false);
+    }
+
+    async function startPairing() {
+        stopPairing();
+        pairModal.style.display = 'flex';
+        activeZone = 'pair';
+        document.getElementById('pair-code').textContent = '----';
+        setPairStatus('');
+        if (!window.crypto || !crypto.subtle || typeof qrcode !== 'function') {
+            setPairStatus(tx('Bu TV bu yöntemi desteklemiyor. Anahtarı Ayarlar\'dan elle gir.', 'This TV does not support this method. Type the key in Settings.'), false);
+            return;
+        }
+        const topic = 'oguziptv-' + b64urlEncode(crypto.getRandomValues(new Uint8Array(16)));
+        const secret = crypto.getRandomValues(new Uint8Array(32));
+        const key = await crypto.subtle.importKey('raw', secret, 'AES-GCM', false, ['decrypt']);
+        const url = PAIR_PAGE + '#t=' + topic + '&k=' + b64urlEncode(secret);
+        drawQr(document.getElementById('pair-qr'), url);
+        document.getElementById('pair-code').textContent = await pairCodeOf(secret);
+        document.getElementById('pair-url').textContent = PAIR_PAGE.replace(/^https?:\/\//, '');
+        const state = { topic: topic, key: key, until: Date.now() + PAIR_TTL, seen: {}, stopped: false, abort: null, timer: null, url: url };
+        pair = state;
+        pairModal.dataset.pairUrl = url;   // for testing; the secret is only here while the window is open
+        state.timer = setInterval(() => {
+            const left = Math.max(0, state.until - Date.now());
+            document.getElementById('pair-timer').textContent = tx('Kalan süre: ', 'Time left: ') + Math.floor(left / 60000) + ':' + String(Math.floor(left / 1000) % 60).padStart(2, '0');
+            if (left === 0) {
+                stopPairing();
+                setPairStatus(tx('Süre doldu. Yeniden başlatmak için pencereyi kapatıp aç.', 'Expired. Close and reopen this window to start again.'), false);
+            }
+        }, 1000);
+        setPairStatus(tx('Telefondan bekleniyor…', 'Waiting for the phone…'));
+        listenForPairing(state);
+    }
+
+    function closePairing() {
+        stopPairing();
+        pairModal.style.display = 'none';
+        delete pairModal.dataset.pairUrl;
+        activeZone = 'topnav';
+        flushCategoryRefresh();
+        openSettings(settingsFocus);
+    }
+
+    function handlePairKey(e, key, keyCode) {
+        if (key === 'Escape' || key === 'Backspace' || key === 'Enter' || keyCode === 27 || keyCode === 461 || keyCode === 10009 || keyCode === 13) {
+            closePairing();
+            e.preventDefault();
+        }
+    }
+
     // ---- Settings: subtitle look, account info ----
     const SETTINGS_KEY = 'oguzSettings';
     const tx = (tr, en) => (currentLang === 'en' ? en : tr);
@@ -878,6 +1579,10 @@ document.addEventListener('DOMContentLoaded', function() {
             { label: () => tx('Siyah', 'Black'), css: '#000000' } ] },
         { key: 'epg', label: () => tx('Program rehberi', 'Program guide'), options: [
             { label: () => tx('Açık', 'On') },
+            { label: () => tx('Kapalı', 'Off') } ] },
+        { key: 'netIndicator', label: () => tx('Bağlantı göstergesi (oynatıcı)', 'Connection indicator (player)'), options: [
+            { label: () => tx('Açık', 'On') },
+            { label: () => tx('Sorun olunca', 'Only on trouble') },
             { label: () => tx('Kapalı', 'Off') } ] }
     ];
     // ---- Log out / wipe data ----
@@ -904,13 +1609,21 @@ document.addEventListener('DOMContentLoaded', function() {
     const settingActions = [
         { label: () => tx('Kategorileri düzenle…', 'Edit categories…'), show: () => connectionType !== 'm3u',
           run: () => { closeSettings(); openCategoryManager(); } },
+        { label: () => tx('Bağlantı testi (5 küçük istek)', 'Connection test (5 small requests)'), show: () => connectionType !== 'm3u',
+          run: () => { runConnectionTest(); } },
+        { label: () => tx('Anahtarları telefonla gir (QR kod)', 'Enter keys with your phone (QR code)'), show: () => true,
+          run: () => { closeSettings(); startPairing(); } },
+        { label: () => tx('TMDB anahtarı: ', 'TMDB key: ') + keyStatusText('tmdb'), show: () => true,
+          run: () => { const f = settingsFocus; closeSettings(); openKeyEntry('tmdb', () => openSettings(f)); } },
+        { label: () => tx('Subdl anahtarı: ', 'Subdl key: ') + keyStatusText('subdl'), show: () => true,
+          run: () => { const f = settingsFocus; closeSettings(); openKeyEntry('subdl', () => openSettings(f)); } },
         { label: () => tx('Çıkış yap (giriş bilgilerini ve izleme kayıtlarını sil)', 'Log out (remove login and watch history)'), show: () => true, confirm: true,
           run: () => { clearSessionData(); leaveToLogin(); } },
         { label: () => tx('Tüm verileri sil (ayarlar, favoriler dahil)', 'Erase all data (settings and favourites too)'), show: () => true, confirm: true,
           run: () => { clearAllData(); leaveToLogin(); } }
     ];
     let settingsConfirm = -1; // index of the action that waits for a second OK
-    const settings = { subSize: 1, subColor: 0, subBg: 1, epg: 0 };
+    const settings = { subSize: 1, subColor: 0, subBg: 1, epg: 0, netIndicator: 0 };
     try {
         const savedSettings = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
         settingDefs.forEach(def => {
@@ -988,6 +1701,10 @@ document.addEventListener('DOMContentLoaded', function() {
         settingsPreview.style.backgroundColor = v.bg === 'transparent' ? '#3a4a5a' : v.bg;
         settingsPreview.style.textShadow = '0 0 4px #000, 0 0 4px #000';
         renderEpgStatus();
+        const focusedRow = settingsRowsEl.querySelector('.settings-row.focused');
+        if (focusedRow && focusedRow.scrollIntoView) focusedRow.scrollIntoView({ block: 'nearest' });
+        const tmdbEl = document.getElementById('settings-tmdb');
+        if (tmdbEl) tmdbEl.textContent = TMDB_KEY ? 'TMDB: ' + tx('açık', 'on') + '. This product uses the TMDB API but is not endorsed or certified by TMDB.' : '';
         const versionEl = document.getElementById('settings-version');
         if (versionEl) versionEl.textContent = 'oguzIPTV v' + APP_VERSION;
     }
@@ -1002,6 +1719,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (settings.epg === 0) loadEpg(false);
             updateEpgViews();
         }
+        if (def.key === 'netIndicator') updateNetIndicator();
         renderSettings();
     }
 
@@ -1047,10 +1765,12 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    function openSettings() {
+    function openSettings(focusIndex) {
+        const netResult = document.getElementById('settings-net');
+        if (netResult) netResult.textContent = '';
         settingsConfirm = -1;
         activeZone = 'settings';
-        settingsFocus = 0;
+        settingsFocus = focusIndex > 0 ? focusIndex : 0;
         renderSettings();
         settingsModal.style.display = 'flex';
         loadAccountInfo();
@@ -1325,7 +2045,7 @@ document.addEventListener('DOMContentLoaded', function() {
             setText('live-program', '');
             setDisplay('live-program-bar', 'none');
         }
-        setText('live-hint', tx('◀ Kanallar   ·   0-9 Kanal no   ·   Sarı: Program rehberi', '◀ Channels   ·   0-9 Channel no   ·   Yellow: Program guide'));
+        setText('live-hint', tx('◀ Kanallar   ·   0-9 Kanal no   ·   Sarı: Program rehberi   ·   Mavi: Bağlantı', '◀ Channels   ·   0-9 Channel no   ·   Yellow: Program guide   ·   Blue: Connection'));
         setText('live-next', next ? tx('Sonra', 'Next') + ' · ' + epgClock(next[0]) + '  ' + next[2] : (now ? '' : (settings.epg === 0 ? tx('Program bilgisi yok', 'No program info') : '')));
     }
 
@@ -1577,6 +2297,220 @@ document.addEventListener('DOMContentLoaded', function() {
         return null;
     }
 
+    // ---- Connection quality: signal bars, mini graph, connection test ----
+    // The bars and the graph only read what the player already knows (buffer, stalls, dropped frames, and for HLS the speed
+    // estimate and the server's first-byte time of segments it loads anyway). They send no requests of their own.
+    const NET_KEEP = 60;                 // seconds of history
+    let netSamples = [];                 // {buf, speed, fill, stall, dropped}
+    let netStalls = [];                  // {at}
+    let netStallStart = 0;
+    let netHasPlayed = false;
+    let netTtfb = null;                  // ms, smoothed
+    let netLastBufEnd = null;
+    let netLastTick = 0;
+    let netDropBase = null;              // [dropped, total] one second earlier
+    let netDropWindow = [];              // dropped-frame ratios of the last seconds
+    const netIndicator = document.getElementById('net-indicator');
+    const netPanel = document.getElementById('net-panel');
+    const netCanvas = document.getElementById('net-canvas');
+    const netText = document.getElementById('net-text');
+
+    function resetNetStats() {
+        netSamples = [];
+        netStalls = [];
+        netStallStart = 0;
+        netHasPlayed = false;
+        netTtfb = null;
+        netLastBufEnd = null;
+        netLastTick = 0;
+        netDropBase = null;
+        netDropWindow = [];
+        if (netIndicator) netIndicator.style.display = 'none';
+    }
+
+    function onFragLoaded(event, data) {
+        const stats = data && ((data.frag && data.frag.stats) || data.stats);
+        if (!stats || !stats.loading || !stats.loading.first || !stats.loading.start) return;
+        const ms = stats.loading.first - stats.loading.start;
+        if (ms >= 0) netTtfb = netTtfb === null ? ms : netTtfb * 0.7 + ms * 0.3;
+    }
+
+    videoPlayer.addEventListener('playing', () => {
+        netHasPlayed = true;
+        if (netStallStart) {
+            netStalls.push({ at: Date.now() });
+            netStallStart = 0;
+        }
+    });
+    videoPlayer.addEventListener('waiting', () => {
+        if (netHasPlayed && !videoPlayer.seeking && !videoPlayer.paused && !netStallStart) netStallStart = Date.now();
+    });
+
+    function bufferAhead() {
+        const b = videoPlayer.buffered;
+        const t = videoPlayer.currentTime;
+        for (let i = 0; i < b.length; i++) {
+            if (t >= b.start(i) - 0.3 && t <= b.end(i)) return Math.max(0, b.end(i) - t);
+        }
+        return 0;
+    }
+
+    function bufferEnd() {
+        const b = videoPlayer.buffered;
+        return b.length ? b.end(b.length - 1) : 0;
+    }
+
+    function netTick() {
+        const playerVisible = playbackActive && document.getElementById('video-container').style.display === 'block';
+        if (!playerVisible) return;
+        const now = Date.now();
+        const buf = bufferAhead();
+        const end = bufferEnd();
+        let fill = null;
+        if (netLastBufEnd !== null && netLastTick) fill = Math.max(0, (end - netLastBufEnd) / ((now - netLastTick) / 1000));
+        netLastBufEnd = end;
+        netLastTick = now;
+        let speed = null;
+        if (hls && typeof hls.bandwidthEstimate === 'number' && isFinite(hls.bandwidthEstimate) && hls.bandwidthEstimate > 0) speed = hls.bandwidthEstimate / 1e6;
+        let dropRatio = 0;
+        if (videoPlayer.getVideoPlaybackQuality) {
+            const q = videoPlayer.getVideoPlaybackQuality();
+            if (netDropBase) {
+                const frames = q.totalVideoFrames - netDropBase[1];
+                dropRatio = frames > 0 ? (q.droppedVideoFrames - netDropBase[0]) / frames : 0;
+            }
+            netDropBase = [q.droppedVideoFrames, q.totalVideoFrames];
+        }
+        netDropWindow.push(dropRatio);
+        if (netDropWindow.length > 10) netDropWindow.shift();
+        netStalls = netStalls.filter(s => now - s.at < NET_KEEP * 1000);
+        netSamples.push({ buf: buf, speed: speed, fill: fill, stall: netStallStart !== 0, at: now });
+        if (netSamples.length > NET_KEEP) netSamples.shift();
+        updateNetIndicator();
+        if (netPanel && netPanel.style.display !== 'none') drawNetPanel();
+    }
+    setInterval(netTick, 1000);
+
+    // 4 = very good ... 1 = bad
+    function netQuality() {
+        const last = netSamples[netSamples.length - 1];
+        if (!last) return { bars: 0, label: tx('ölçülüyor', 'measuring') };
+        const now = Date.now();
+        const recent = netStalls.filter(s => now - s.at < 30000).length;
+        let bars = 4;
+        if (last.buf < 5) bars = 3;
+        if (last.buf < 2) bars = 2;
+        if (recent >= 1) bars = Math.min(bars, 2);
+        if (netStalls.length >= 3 || netStallStart || last.buf < 0.5) bars = 1;
+        if (videoPlayer.paused && !netStallStart) bars = Math.max(bars, 3); // a paused video is not a bad connection
+        const labels = [tx('kötü', 'bad'), tx('orta', 'fair'), tx('iyi', 'good'), tx('çok iyi', 'very good')];
+        return { bars: bars, label: labels[bars - 1] };
+    }
+
+    function updateNetIndicator() {
+        if (!netIndicator) return;
+        const mode = settings.netIndicator;   // 0 on, 1 only when there is a problem, 2 off
+        const q = netQuality();
+        const show = mode === 0 || (mode === 1 && q.bars > 0 && q.bars <= 2);
+        netIndicator.style.display = show && q.bars > 0 ? 'flex' : 'none';
+        if (!show || q.bars === 0) return;
+        netIndicator.className = 'net-indicator ' + (q.bars >= 3 ? 'good' : (q.bars === 2 ? 'fair' : 'bad')) + (q.bars <= 2 ? ' attention' : '');
+        const bars = netIndicator.children;
+        for (let i = 0; i < bars.length; i++) bars[i].className = i < q.bars ? 'on' : '';
+        netIndicator.title = q.label;
+    }
+
+    function drawNetPanel() {
+        if (!netCanvas) return;
+        const ctx = netCanvas.getContext('2d');
+        const w = netCanvas.width, h = netCanvas.height;
+        ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = 'rgba(255,255,255,0.05)';
+        ctx.fillRect(0, 0, w, h);
+        const step = w / (NET_KEEP - 1);
+        const maxBuf = Math.max(15, ...netSamples.map(s => s.buf));
+        const speeds = netSamples.map(s => s.speed).filter(v => v !== null);
+        const maxSpeed = Math.max(5, ...speeds);
+        // grid
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+        ctx.lineWidth = 1;
+        [0.25, 0.5, 0.75].forEach(f => { ctx.beginPath(); ctx.moveTo(0, h * f); ctx.lineTo(w, h * f); ctx.stroke(); });
+        const x = i => w - (netSamples.length - 1 - i) * step;
+        // buffer (area)
+        ctx.beginPath();
+        netSamples.forEach((s, i) => { const y = h - (Math.min(s.buf, maxBuf) / maxBuf) * (h - 6) - 3; if (i === 0) ctx.moveTo(x(i), h); ctx.lineTo(x(i), y); });
+        ctx.lineTo(x(netSamples.length - 1), h);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(0,200,255,0.30)';
+        ctx.fill();
+        // speed (line, HLS only)
+        ctx.beginPath();
+        let started = false;
+        netSamples.forEach((s, i) => {
+            if (s.speed === null) return;
+            const y = h - (Math.min(s.speed, maxSpeed) / maxSpeed) * (h - 6) - 3;
+            if (!started) { ctx.moveTo(x(i), y); started = true; } else ctx.lineTo(x(i), y);
+        });
+        ctx.strokeStyle = '#ffb74d';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // stalls
+        ctx.fillStyle = '#ff5252';
+        netSamples.forEach((s, i) => { if (s.stall) ctx.fillRect(x(i) - 2, 0, 4, h); });
+        netStalls.forEach(st => { const age = (Date.now() - st.at) / 1000; if (age < NET_KEEP) ctx.fillRect(w - age * step - 2, 0, 4, 10); });
+
+        const last = netSamples[netSamples.length - 1];
+        const q = netQuality();
+        const minuteStalls = netStalls.length;
+        const drop = netDropWindow.length ? netDropWindow.reduce((a, b) => a + b, 0) / netDropWindow.length : 0;
+        const parts = [];
+        parts.push(tx('Tampon ', 'Buffer ') + (last ? last.buf.toFixed(1) : '0') + tx(' sn', ' s'));
+        if (last && last.speed !== null) parts.push(tx('Hız ', 'Speed ') + last.speed.toFixed(1) + ' Mbps');
+        else if (last && last.fill !== null && last.fill > 0.05) parts.push(tx('Yükleme ', 'Loading ') + last.fill.toFixed(1) + '×');
+        parts.push(tx('Takılma ', 'Stalls ') + minuteStalls + tx(' (60 sn)', ' (60 s)'));
+        parts.push(tx('Kare atlama %', 'Dropped frames ') + (drop * 100).toFixed(0) + (currentLang === 'en' ? '%' : ''));
+        if (netTtfb !== null) parts.push(tx('Sunucu yanıtı ', 'Server response ') + Math.round(netTtfb) + ' ms');
+        netText.textContent = tx('Kalite: ', 'Quality: ') + q.label + '   ·   ' + parts.join('   ·   ');
+    }
+
+    function toggleNetPanel() {
+        if (!netPanel) return;
+        const open = netPanel.style.display === 'none' || !netPanel.style.display;
+        netPanel.style.display = open ? 'block' : 'none';
+        if (open) { netTick(); drawNetPanel(); }
+    }
+
+    // ---- connection test (Settings): a few tiny requests to the provider, only when you ask for it ----
+    async function runConnectionTest() {
+        const out = document.getElementById('settings-net');
+        const server = localStorage.getItem('xtream_server');
+        const user = localStorage.getItem('xtream_username');
+        const pass = localStorage.getItem('xtream_password');
+        if (!out) return;
+        if (connectionType === 'm3u' || !server || !user || !pass) { out.textContent = tx('Bağlantı testi sadece Xtream girişinde çalışır.', 'The test only works with an Xtream login.'); return; }
+        const times = [];
+        for (let i = 0; i < 5; i++) {
+            out.textContent = tx('Bağlantı test ediliyor… ', 'Testing the connection… ') + (i + 1) + '/5';
+            const started = performance.now();
+            try {
+                const response = await fetch(server + '/player_api.php?username=' + user + '&password=' + pass + '&_=' + Date.now());
+                await response.text();
+                times.push(performance.now() - started);
+            } catch (error) {
+                out.textContent = tx('Sunucuya ulaşılamadı: ', 'Could not reach the server: ') + (error && error.message ? error.message : error);
+                return;
+            }
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        const rest = times.slice(1);
+        const avg = rest.reduce((a, b) => a + b, 0) / rest.length;
+        const worst = Math.max(...rest);
+        const verdict = avg < 150 ? tx('İyi', 'Good') : (avg < 400 ? tx('Orta', 'Fair') : tx('Kötü', 'Poor'));
+        out.scrollIntoView({ block: 'nearest' });
+        out.textContent = tx('Sunucu yanıtı: ort. ', 'Server response: avg ') + Math.round(avg) + ' ms, ' + tx('en yavaş ', 'slowest ') + Math.round(worst) + ' ms ' +
+            tx('(ilk bağlantı ', '(first connection ') + Math.round(times[0]) + ' ms)  ·  ' + verdict;
+    }
+
     function renderEpgStatus() {
         const el = document.getElementById('settings-epg');
         if (!el) return;
@@ -1773,6 +2707,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 hideOSD();
                 activeZone = 'player';
                 history.pushState({'page': 'main'}, 'main', location.href);
+            } else if (activeZone === 'keyentry') {
+                closeKeyEntry();
+                history.pushState({'page': 'main'}, 'main', location.href);
+            } else if (activeZone === 'pair') {
+                closePairing();
+                history.pushState({'page': 'main'}, 'main', location.href);
             } else if (activeZone === 'catmgr') {
                 closeCategoryManager();
                 history.pushState({'page': 'main'}, 'main', location.href);
@@ -1896,7 +2836,12 @@ document.addEventListener('DOMContentLoaded', function() {
         sidebar.appendChild(favoritesItem);
 
         if (currentContentType !== 'live') {
-            [['continue', translations[currentLang]['category-continue']], ['recent', translations[currentLang]['category-recent']]].forEach(([specialId, label]) => {
+            const specials = [['continue', translations[currentLang]['category-continue']], ['recent', translations[currentLang]['category-recent']]];
+            if (TMDB_KEY) {
+                specials.push(['tmdbpop', tx('Popüler (TMDB)', 'Popular (TMDB)')]);
+                if (currentContentType === 'series') specials.push(['tmdbtr', tx('Popüler Türk Dizileri (TMDB)', 'Popular Turkish series (TMDB)')]);
+            }
+            specials.forEach(([specialId, label]) => {
                 const specialItem = document.createElement('div');
                 specialItem.className = 'category-item';
                 specialItem.dataset.categoryId = specialId;
@@ -1985,6 +2930,15 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         if (categoryItem.dataset.special === 'continue') {
             showContinueWatching();
+            return;
+        }
+        if (categoryItem.dataset.special === 'tmdbpop' || categoryItem.dataset.special === 'tmdbtr') {
+            const srvP = localStorage.getItem('xtream_server');
+            const usrP = localStorage.getItem('xtream_username');
+            const pwdP = localStorage.getItem('xtream_password');
+            if (srvP && usrP && pwdP) {
+                showTmdbPopular(categoryItem.dataset.special === 'tmdbtr' ? 'trtv' : (currentContentType === 'series' ? 'series' : 'movies'), srvP, usrP, pwdP);
+            }
             return;
         }
         if (categoryItem.dataset.special === 'recent') {
@@ -2505,6 +3459,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const PROGRESS_SAVE_INTERVAL = 5000;   // ms; it used to be written about four times a second
     let lastProgressWrite = 0;
     let suggestedEpisodeId = null;
+    let seriesModalRef = null;        // what is needed to show the series window again after an episode
+    let pendingSeriesReturn = false;  // an episode is playing: leaving the player goes back to the series window
 
     function streamRef(url) {
         const m = /\/(movie|series)\/[^\/]+\/[^\/]+\/(\d+)\.\w+/.exec(url || '');
@@ -3203,6 +4159,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         playbackActive = true;
+        resetNetStats();
 
         // Stop any currently playing video first (but don't hide container yet)
         if (hls) {
@@ -3236,6 +4193,9 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
+        // An episode of a series: leaving the player ("Kapat" / Back) returns to the series window, not to the channel list
+        pendingSeriesReturn = url.indexOf('/series/') !== -1 && !!seriesModalRef && seriesModalRef.token === vodMetaToken;
+
         // Remember which movie/series this is, for the "Continue watching" list (live TV is not tracked)
         currentContinueItem = (!url.includes('.m3u8') && currentVodModalItem) ? { item: currentVodModalItem, type: currentContentType } : null;
         lastContinueSave = 0;
@@ -3252,7 +4212,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         // Fetch external subtitle using Subdl API if metadata is provided
-        if (activeItem && /\/(movie|series)\//.test(url) && (SUBTITLE_API_KEY || OPEN_SUBTITLES_API_KEY)) {
+        if (activeItem && /\/(movie|series)\//.test(url)) {
             fetchAndInjectExternalSubtitle(activeItem, seriesInfo);
         }
 
@@ -3304,6 +4264,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     hls.destroy();
                 }
                 hls = new Hls();
+                hls.on(Hls.Events.FRAG_LOADED, onFragLoaded);
                 hls.loadSource(url);
                 hls.attachMedia(videoPlayer);
 
@@ -3434,6 +4395,8 @@ document.addEventListener('DOMContentLoaded', function() {
         vodDuration.textContent = '';
         vodGenres.textContent = '';
         vodCredits.textContent = '';
+        resetTmdbModal();
+        if (vodModalContent) vodModalContent.scrollTop = 0;
         vodPoster.src = PLACEHOLDER_IMG;
         vodModalBackdrop.style.backgroundImage = '';
         modalEpisodesSlider.innerHTML = '';
@@ -3486,7 +4449,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (useVodInfo) {
             fetchMovieMeta(activeItem.id).then(meta => {
                 if (metaToken !== vodMetaToken) return; // another title was opened meanwhile
-                if (!meta) return; // get_vod_info unavailable: keep what the list already gave us
+                if (!meta) { // get_vod_info unavailable: keep what the list already gave us
+                    tmdbForMovie(activeItem, parsed, null, metaToken);
+                    return;
+                }
                 if (meta.year) vodYear.textContent = meta.year;
                 if (meta.rating) vodRating.textContent = meta.rating;
                 vodDuration.textContent = meta.duration || '';
@@ -3499,6 +4465,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const poster = meta.poster;
                 if (poster) vodPoster.src = poster;
                 if (meta.backdrop) vodModalBackdrop.style.backgroundImage = 'url(' + meta.backdrop + ')';
+                tmdbForMovie(activeItem, parsed, meta.tmdbId, metaToken);
             });
         }
 
@@ -3528,6 +4495,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (si.director) credits.push('Yönetmen: ' + si.director);
                     if (si.cast) credits.push('Oyuncular: ' + String(si.cast).split(',').slice(0, 5).map(c => c.trim()).join(', '));
                     if (!vodCredits.textContent && credits.length) vodCredits.textContent = credits.join('  |  ');
+                    tmdbForSeries(activeItem, parsed, parseInt(si.tmdb_id || si.tmdb, 10) || null, metaToken);
                 }
                 
                 // Store the main poster from modal as fallback
@@ -3552,6 +4520,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     const suggested = suggestEpisode(String(activeItem.series_id || activeItem.id), currentSeriesInfo.episodes);
                     suggestedEpisodeId = suggested ? suggested.id : null;
                     const startSeason = suggested && episodesBySeason[suggested.season] ? String(suggested.season) : seasonNumbers[0];
+                    seriesModalRef = { episodesBySeason: episodesBySeason, mainPosterSrc: mainPosterSrc, channelElement: channelElement,
+                                       seriesId: String(activeItem.series_id || activeItem.id), token: metaToken };
                     let firstSeason = true;
 
                     seasonNumbers.forEach(seasonNum => {
@@ -3728,6 +4698,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             modalEpisodesSlider.appendChild(episodeCard);
         });
+        enhanceEpisodes(); // TMDB photos / titles / summaries for this season (does nothing without a key)
     }
 
     function playChannel(channelElement) {
@@ -3962,6 +4933,11 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    const btnNet = document.getElementById('btn-osd-net');
+    if (btnNet) {
+        btnNet.addEventListener('click', toggleNetPanel);
+    }
+
     const btnGuide = document.getElementById('btn-osd-guide');
     if (btnGuide) {
         btnGuide.addEventListener('click', openGuide);
@@ -4127,6 +5103,55 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // The Subtitle Database: free, no key, CORS open. Look up by IMDb id (or TMDB id), ask for Turkish only.
+    let tsdbReason = '';
+    async function fetchTsdbSubtitle(activeItem, seriesInfo = null) {
+        tsdbReason = '';
+        const info = seriesInfo && seriesInfo.info ? seriesInfo.info : activeItem;
+        const imdbId = (info && info.imdb_id) || (activeItem && activeItem.imdb_id) || '';
+        const movieTmdbId = getMovieTmdbId(activeItem);
+        const tmdbId = (info && info.tmdb_id) || (activeItem && activeItem.tmdb_id) || movieTmdbId || '';
+        const season = (activeItem && (activeItem.season_num || activeItem.season)) || (seriesInfo && seriesInfo.season) || 0;
+        const episode = (activeItem && (activeItem.episode_num || activeItem.episode)) || (seriesInfo && seriesInfo.episode) || 0;
+        const isSeries = season > 0 && episode > 0;
+        // TSDB files episodes under their own ids, not the series id: a series lookup could return another episode's subtitle. Movies only.
+        if (isSeries || /\/series\//.test(currentStreamUrl || '')) { tsdbReason = 'diziler için kullanılmıyor'; return null; }
+        const validImdb = /^tt\d{5,10}$/.test(String(imdbId));
+        let url;
+        if (validImdb) {
+            url = 'https://api.thesubtitledb.org/v1/by-imdb/' + imdbId;
+        } else if (/^\d+$/.test(String(tmdbId))) {
+            url = 'https://api.thesubtitledb.org/v1/by-tmdb/' + 'movie' + '/' + tmdbId;
+        } else {
+            tsdbReason = 'IMDb/TMDB numarası yok';
+            return null;
+        }
+        url += '?lang=tr&limit=30';
+
+        const response = await fetch(url);
+        if (response.status === 404) { tsdbReason = 'kayıtta yok'; return null; }
+        if (!response.ok) { tsdbReason = 'arama HTTP ' + response.status; return null; }
+        const data = await response.json();
+        const items = (data && data.subtitles && data.subtitles.items) || [];
+        const usable = items.filter(it => it && it.language === 'tr' && it.download_url && (it.format === 'srt' || it.format === 'vtt'));
+        if (usable.length === 0) { tsdbReason = 'Türkçe altyazı yok'; return null; }
+        // best first: human-made, not hearing-impaired, with a plausible amount of lines
+        usable.sort((a, b) => (a.ai_transcribed ? 1 : 0) - (b.ai_transcribed ? 1 : 0)
+            || (a.hearing_impaired ? 1 : 0) - (b.hearing_impaired ? 1 : 0)
+            || (b.cues || 0) - (a.cues || 0));
+        const best = usable[0];
+        if (!/^https:\/\/api\.thesubtitledb\.org\//.test(best.download_url)) { tsdbReason = 'beklenmeyen indirme adresi'; return null; }
+        const file = await fetch(best.download_url);
+        if (!file.ok) { tsdbReason = 'indirme HTTP ' + file.status; return null; }
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let text;
+        try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+        catch (e) { text = new TextDecoder('windows-1254').decode(bytes); }
+        text = text.replace(/^\uFEFF/, '');
+        if (!text.includes('-->')) { tsdbReason = 'dosya altyazı değil'; return null; }
+        return text;
+    }
+
     // Inject external subtitle as blob URL
     function injectExternalSubtitle(vttText, label = 'Harici Türkçe (Subdl)') {
         // Clean up previous blob URLs
@@ -4201,7 +5226,7 @@ document.addEventListener('DOMContentLoaded', function() {
         box._hideTimer = setTimeout(() => { box.style.display = 'none'; }, 8000);
     }
 
-    // Subtitle sources, in order: 1) Subdl, 2) OpenSubtitles.
+    // Subtitle sources, in order: 1) Subdl (own key), 2) The Subtitle Database (no key), 3) OpenSubtitles (developer key in config.js only).
     // The first one that works is used; failures are reported on screen.
     async function fetchAndInjectExternalSubtitle(activeItem, seriesInfo = null) {
         const streamUrl = currentStreamUrl;
@@ -4227,7 +5252,26 @@ document.addEventListener('DOMContentLoaded', function() {
             reasons.push('Subdl: anahtar yok');
         }
 
-        // 2) OpenSubtitles
+        // 2) The Subtitle Database (no key needed)
+        try {
+            const tsdbText = await fetchTsdbSubtitle(activeItem, seriesInfo);
+            if (stale()) return;
+            if (tsdbText) {
+                injectExternalSubtitle(tsdbText, 'Harici Türkçe (TSDB)');
+                populateOSDTracks();
+                showSubtitleNote('Altyazı: The Subtitle Database' + (reasons.length ? ' — ' + reasons.join('; ') : ''));
+                return;
+            }
+            reasons.push('TSDB: ' + (tsdbReason || 'bulunamadı'));
+        } catch (error) {
+            reasons.push('TSDB: hata (' + (error && error.message ? error.message : error) + ')');
+        }
+
+        // 3) OpenSubtitles - only with the developer key from config.js
+        if (!OPEN_SUBTITLES_API_KEY) {
+            showSubtitleNote('Altyazı bulunamadı — ' + reasons.join('; '));
+            return;
+        }
         try {
             const openSubtitleText = await fetchOpenSubtitles(activeItem, seriesInfo);
             if (stale()) return;
@@ -4554,6 +5598,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function stopVideo() {
+        if (netPanel) netPanel.style.display = 'none';
+        resetNetStats();
         saveProgress(true);
         updateContinueEntry(true);
         playbackActive = false;
@@ -4573,13 +5619,45 @@ document.addEventListener('DOMContentLoaded', function() {
         currentSubOffset = 0;
     }
     
+    // After an episode: show the series window again, on the episode that was playing (or the one to watch next)
+    function reopenSeriesModal() {
+        if (!pendingSeriesReturn) return;
+        pendingSeriesReturn = false;
+        const ref = seriesModalRef;
+        if (!ref || ref.token !== vodMetaToken || !currentSeriesInfo || !currentSeriesInfo.episodes) return;
+        const played = currentSeriesInfo.episodes[currentEpisodeIndex];
+        const next = suggestEpisode(ref.seriesId, currentSeriesInfo.episodes);
+        suggestedEpisodeId = next ? next.id : null;
+        vodDetailsModal.style.display = 'block';
+        activeZone = 'vod-modal';
+        // show the season of the episode, redrawn so the watched ticks and the "continue" tag are current
+        const season = String((next && next.season) || (played && played.season) || '');
+        const seasonBtn = Array.from(document.querySelectorAll('.season-btn')).find(b => b.dataset.season === season) || document.querySelector('.season-btn.active');
+        if (seasonBtn) seasonBtn.click();
+        document.querySelectorAll('.season-btn').forEach(b => b.classList.remove('focused'));
+        const cards = Array.from(modalEpisodesSlider.querySelectorAll('.episode-card'));
+        const target = modalEpisodesSlider.querySelector('.episode-card.suggested') ||
+            cards.find(c => { try { return played && String(JSON.parse(c.dataset.channelData).id) === String(played.id); } catch (e) { return false; } }) || cards[0];
+        if (target) {
+            target.classList.add('focused');
+            target.focus();
+        } else if (seasonBtn) {
+            seasonBtn.classList.add('focused');
+            seasonBtn.focus();
+        }
+    }
+
     // Switch to the player screen. Setting the hash only works when it changes: after leaving the player with the
     // "Kapat" button the hash used to stay "#player", so the next channel played audio-only behind the channel list.
     function enterPlayerView() {
         if (window.location.hash === '#player') {
             handleRouting();
         } else {
+            // Changing the hash fires "popstate" before "hashchange". While a details window is open that used to be taken
+            // for the Back button: it closed the window and added a second #player history entry (Back needed two presses).
+            isEnteringPlayer = true;
             window.location.hash = '#player';
+            setTimeout(() => { isEnteringPlayer = false; }, 300);
         }
     }
 
@@ -4604,6 +5682,8 @@ document.addEventListener('DOMContentLoaded', function() {
             lastFocusedChannel.classList.add('focused');
             activeZone = 'channels';
         }
+
+        reopenSeriesModal(); // came from an episode: back to the series window
     }
     
     function handleRouting() {
@@ -4659,6 +5739,16 @@ document.addEventListener('DOMContentLoaded', function() {
                           keyCode === 38 || keyCode === 40 || keyCode === 37 || keyCode === 39;
         const isEnterKey = keyLower === 'enter' || keyCode === 13;
 
+
+        // Key entry and phone pairing windows
+        if (activeZone === 'keyentry') {
+            handleKeyEntryKey(e, key, keyCode, isEnterKey);
+            return;
+        }
+        if (activeZone === 'pair') {
+            handlePairKey(e, key, keyCode);
+            return;
+        }
 
         // Category manager
         if (activeZone === 'catmgr') {

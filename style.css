@@ -1414,8 +1414,11 @@ div[tabindex]:focus {
     bottom: 14px;
     display: flex;
     gap: 22px;
+    padding: 8px 20px;
     font-size: 16px;
-    color: #9a9a9a;
+    color: #d0d0d0;
+    background: rgba(0, 0, 0, 0.62);
+    border-radius: 10px;
     pointer-events: none;
     z-index: 10;
 }
@@ -1832,4 +1835,282 @@ body.login-screen #top-nav {
     color: #1b1b1b;
     background: #ffb74d;
     border-radius: 10px;
+}
+
+
+/* ---- TMDB details ---- */
+.vod-tagline {
+    margin: -4px 0 10px;
+    font-size: 17px;
+    font-style: italic;
+    color: #b0b0b0;
+}
+
+.vod-tagline:empty,
+.vod-status:empty,
+.vod-cast:empty,
+.episode-overview:empty,
+.vod-cert:empty {
+    display: none;
+}
+
+.vod-cert {
+    padding: 2px 10px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #ddd;
+    border: 1px solid #888;
+    border-radius: 4px;
+}
+
+.vod-cast {
+    display: flex;
+    gap: 18px;
+    margin: 4px 0 18px;
+    max-width: 700px;
+    overflow: hidden;
+}
+
+.cast-card {
+    width: 92px;
+    flex-shrink: 0;
+    text-align: center;
+}
+
+.cast-photo {
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 50%;
+    background: #333;
+}
+
+.cast-name {
+    margin-top: 6px;
+    font-size: 13px;
+    line-height: 1.2;
+    color: #ddd;
+}
+
+.cast-role {
+    margin-top: 2px;
+    font-size: 12px;
+    line-height: 1.2;
+    color: #888;
+}
+
+.episode-overview {
+    margin: 10px 0 0;
+    max-width: 760px;
+    max-height: 4.2em;
+    overflow: hidden;
+    font-size: 15px;
+    line-height: 1.4;
+    color: #bdbdbd;
+}
+
+/* The details window can be taller than the screen (cast row, status line, episode summary):
+   let it scroll, and keep it centred when it is shorter (auto margins on the inner box). */
+.vod-modal-content {
+    align-items: flex-start;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.vod-modal-content::-webkit-scrollbar {
+    width: 0;
+}
+
+.cast-photo {
+    width: 56px;
+    height: 56px;
+}
+
+.cast-card {
+    width: 84px;
+}
+
+
+/* ---- connection quality ---- */
+.net-indicator {
+    position: absolute;
+    top: 22px;
+    right: 24px;
+    z-index: 10001;
+    align-items: flex-end;
+    gap: 3px;
+    padding: 6px 8px;
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: 6px;
+    opacity: 0.55;
+    pointer-events: none;
+}
+
+.net-indicator.attention {
+    opacity: 1;
+}
+
+.net-indicator i {
+    display: block;
+    width: 6px;
+    background: rgba(255, 255, 255, 0.25);
+    border-radius: 1px;
+}
+
+.net-indicator i:nth-child(1) { height: 7px; }
+.net-indicator i:nth-child(2) { height: 12px; }
+.net-indicator i:nth-child(3) { height: 17px; }
+.net-indicator i:nth-child(4) { height: 22px; }
+.net-indicator.good i.on { background: #4caf50; }
+.net-indicator.fair i.on { background: #ffb300; }
+.net-indicator.bad i.on { background: #ff5252; }
+
+.net-panel {
+    position: absolute;
+    right: 24px;
+    bottom: 24px;
+    width: 590px;
+    z-index: 10001;
+    padding: 14px 16px;
+    background: rgba(10, 10, 10, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    color: #fff;
+}
+
+.net-title {
+    margin-bottom: 8px;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.net-panel canvas {
+    display: block;
+    width: 560px;
+    height: 150px;
+}
+
+.net-text {
+    margin-top: 8px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #d6d6d6;
+}
+
+.net-legend {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #888;
+}
+
+.lg-buf { color: rgba(0, 200, 255, 0.7); }
+.lg-speed { color: #ffb74d; }
+.lg-stall { color: #ff5252; }
+
+
+/* the settings list grew: let the panel scroll instead of cutting things off */
+.settings-panel {
+    overflow-y: auto;
+}
+
+.settings-panel::-webkit-scrollbar {
+    width: 0;
+}
+
+
+/* ---- key entry + phone pairing ---- */
+#key-entry,
+#pair-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.88);
+    z-index: 5000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+
+.key-input {
+    width: 100%;
+    box-sizing: border-box;
+    margin: 6px 0 16px;
+    padding: 14px 18px;
+    font-size: 24px;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+    border: 2px solid #00c8ff;
+    border-radius: 10px;
+    outline: none;
+}
+
+.ke-buttons {
+    display: flex;
+    gap: 16px;
+}
+
+.ke-btn {
+    padding: 12px 28px;
+    font-size: 22px;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
+    border: 2px solid transparent;
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.ke-btn.focused,
+.ke-btn:focus {
+    border-color: #00c8ff;
+    background: rgba(0, 200, 255, 0.15);
+    outline: none;
+}
+
+.pair-panel {
+    width: 1100px;
+}
+
+.pair-body {
+    display: flex;
+    gap: 36px;
+    align-items: center;
+}
+
+#pair-qr {
+    flex-shrink: 0;
+    width: 420px;
+    height: 420px;
+    border-radius: 8px;
+}
+
+.pair-info p {
+    margin: 0 0 12px;
+    font-size: 22px;
+    line-height: 1.4;
+}
+
+.pair-code-line {
+    font-size: 26px !important;
+}
+
+.pair-code {
+    padding: 2px 14px;
+    font-size: 34px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    color: #ffb74d;
+    background: rgba(255, 183, 77, 0.12);
+    border-radius: 8px;
+}
+
+.pair-small {
+    font-size: 16px !important;
+    color: #9a9a9a;
+}
+
+.pair-status {
+    min-height: 1.4em;
+    font-weight: 600;
 }

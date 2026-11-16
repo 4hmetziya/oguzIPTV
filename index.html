@@ -4,9 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>oguzIPTV</title>
-    <link rel="stylesheet" href="style.css?v=13">
+    <link rel="stylesheet" href="style.css?v=19">
     <script src="lib/hls.min.js"></script>
     <script src="lib/jszip.min.js"></script>
+    <script src="lib/qrcode.js"></script>
 </head>
 <body>
     <header>
@@ -112,6 +113,7 @@
             <button id="btn-osd-playpause" class="osd-control-btn" tabindex="20">⏯ Oynat/Duraklat</button>
             <button id="btn-osd-tracks" class="osd-control-btn" tabindex="21">Dil & Altyazı</button>
             <button id="btn-osd-guide" class="osd-control-btn" tabindex="23" style="display: none;">Program Rehberi</button>
+            <button id="btn-osd-net" class="osd-control-btn" tabindex="24">Bağlantı</button>
             <button id="btn-osd-stop" class="osd-control-btn" tabindex="22">Kapat</button>
         </div>
     </div>
@@ -123,6 +125,13 @@
     </div>
     <div id="number-overlay" class="number-overlay" style="display: none;"></div>
 
+    <div id="net-indicator" class="net-indicator" style="display: none;"><i></i><i></i><i></i><i></i></div>
+    <div id="net-panel" class="net-panel" style="display: none;">
+        <div class="net-title">Bağlantı kalitesi · son 60 saniye</div>
+        <canvas id="net-canvas" width="560" height="150"></canvas>
+        <div id="net-text" class="net-text"></div>
+        <div class="net-legend"><span class="lg-buf">■</span> Tampon &nbsp; <span class="lg-speed">━</span> Hız (canlı yayın) &nbsp; <span class="lg-stall">▌</span> Takılma &nbsp;·&nbsp; Mavi: kapat</div>
+    </div>
     <div id="epg-guide" class="epg-guide" style="display: none;">
         <div class="epg-guide-head"><span id="epg-guide-channel"></span></div>
         <div id="epg-guide-list" class="epg-guide-list"></div>
@@ -169,21 +178,26 @@
                 <img id="vod-poster" class="modal-poster" alt="Poster">
                 <div class="modal-info">
                     <h1 id="vod-title" class="vod-title"></h1>
+                    <p id="vod-tagline" class="vod-tagline"></p>
                     <div class="vod-meta">
                         <span id="vod-year" class="vod-year"></span>
                         <span id="vod-rating" class="vod-rating"></span>
                         <span id="vod-duration" class="vod-year"></span>
                         <span id="vod-genres" class="vod-year"></span>
+                        <span id="vod-cert" class="vod-cert"></span>
                     </div>
                     <div class="plot-section">
                         <h3 class="plot-label">Özet</h3>
                         <p id="vod-plot" class="vod-plot"></p>
                         <p id="vod-credits" class="vod-credits"></p>
+                        <p id="vod-status" class="vod-credits"></p>
                     </div>
+                    <div id="vod-cast" class="vod-cast"></div>
                     <div id="modal-episodes-container" style="display: none;">
                         <h3 class="episodes-label">Bölümler</h3>
                         <div id="season-selector" class="season-selector"></div>
                         <div id="modal-episodes-slider" class="modal-episodes-slider"></div>
+                        <p id="episode-overview" class="episode-overview"></p>
                     </div>
                     <div class="vod-modal-buttons">
                         <button id="vod-play-btn" class="vod-modal-btn focused" tabindex="18" data-i18n="vod-play">Oynat</button>
@@ -191,6 +205,39 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div id="key-entry" style="display: none;">
+        <div class="settings-panel">
+            <h2 id="key-entry-title">API anahtarı</h2>
+            <p id="key-entry-help" class="settings-account"></p>
+            <input id="key-entry-input" class="key-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="API key">
+            <div class="ke-buttons">
+                <button class="ke-btn" data-action="save" tabindex="31">Kaydet</button>
+                <button class="ke-btn" data-action="test" tabindex="32">Sına</button>
+                <button class="ke-btn" data-action="clear" tabindex="33">Sil</button>
+                <button class="ke-btn" data-action="cancel" tabindex="34">Kapat</button>
+            </div>
+            <div id="key-entry-status" class="settings-account"></div>
+        </div>
+    </div>
+
+    <div id="pair-modal" style="display: none;">
+        <div class="settings-panel pair-panel">
+            <h2>Anahtarları telefonla gir</h2>
+            <div class="pair-body">
+                <canvas id="pair-qr" width="420" height="420"></canvas>
+                <div class="pair-info">
+                    <p>1. Telefonunun kamerasıyla QR kodu okut.</p>
+                    <p>2. Açılan sayfada <b>eşleşme kodunun</b> burdakiyle aynı olduğunu kontrol et, anahtarları yaz, <b>Gönder</b>'e bas.</p>
+                    <p class="pair-code-line">Eşleşme kodu: <span id="pair-code" class="pair-code">----</span></p>
+                    <p id="pair-timer" class="pair-small"></p>
+                    <p id="pair-status" class="pair-status"></p>
+                    <p class="pair-small">Anahtarlar şifreli gönderilir (ntfy.sh üzerinden), şifre sadece bu QR kodun içindedir. Sayfa: <span id="pair-url"></span></p>
+                </div>
+            </div>
+            <div class="settings-account">Geri / Tamam: kapat</div>
         </div>
     </div>
 
@@ -209,11 +256,13 @@
             <div id="settings-preview" class="settings-preview">Altyazı önizleme</div>
             <div id="settings-account" class="settings-account"></div>
             <div id="settings-epg" class="settings-account"></div>
+            <div id="settings-net" class="settings-account"></div>
+            <div id="settings-tmdb" class="settings-account"></div>
             <div id="settings-version" class="settings-account"></div>
         </div>
     </div>
 
     <script src="config.js"></script>
-    <script src="app.js?v=34"></script>
+    <script src="app.js?v=46"></script>
 </body>
 </html>

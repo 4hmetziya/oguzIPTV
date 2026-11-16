@@ -22,15 +22,17 @@ Plain HTML, CSS and JavaScript. No framework, no build step for the app itself.
 - **Program guide** (`xmltv.php` of your provider): "now" in the list, now/next banner, and today's full schedule (yellow key)
 - **Channel list inside the player** (Left key while watching live), channel numbers (`0-9`), channel up/down, last channel (green)
 - Pause and rewind within the stream buffer, with a "LIVE" / "-1:47" indicator
+- **Connection quality**: signal bars in the player and a 60-second graph (blue key) of buffer, speed, stalls and dropped frames. They only read what the player already knows, no extra requests. Settings has an optional connection test (5 small requests, only when you press it).
 
 **Player**
 - HLS (hls.js) and direct files (mkv, mp4, ...)
 - Audio and subtitle menu, resume prompt, auto "next episode"
-- External Turkish subtitles from Subdl and OpenSubtitles (optional, your own API keys), subtitle size / colour / background in Settings
+- External Turkish subtitles from The Subtitle Database (no key needed) and Subdl (optional, your own key), subtitle size / colour / background in Settings
 
 **Settings**
 - Subtitle look, program guide on/off, category manager
 - Account info (status, expiry date, connections)
+- **API keys without editing files**: type TMDB / Subdl keys in Settings (with a "test" button), or scan a **QR code** and enter them on your phone
 - **Log out** (removes login and watch history) and **erase all data**
 
 ## Quick start (development)
@@ -44,16 +46,34 @@ python -m http.server 8080
 
 Log in with your Xtream Codes server URL, user name and password (or an M3U URL).
 
-## Configuration (optional)
+## API keys (optional)
 
-Online subtitles need your own API keys. They are **not** part of the repository:
+Online subtitles work without any key (The Subtitle Database). Subdl as an extra source and the TMDB extras need your own free API keys. They are **not** part of the repository. Three ways to set them:
+
+1. **On the TV, Settings**: "TMDB / Subdl key" opens an input box (use the TV keyboard or the Magic Remote's voice input) and a **Test** button checks the key.
+2. **With your phone (QR code)**: Settings → "Enter keys with your phone (QR code)". Scan the code, check that the 4-digit pairing code on the phone page is the same as on the TV, type the keys, press Send. The keys are encrypted on the phone (AES-256-GCM) with a secret that exists only inside the QR code, and travel through the public relay <https://ntfy.sh>, which only sees ciphertext. The TV decrypts and stores them; the code is valid for 5 minutes and works once.
+3. **`config.js`** (when you build the package yourself):
 
 ```bash
 cp config.example.js config.js
-# edit config.js and fill in subdlApiKey / openSubtitlesApiKey
+# edit config.js and fill in subdlApiKey (and tmdbApiKey)
 ```
 
-`config.js` is in `.gitignore`. Never commit it. Without it the app works, only the online subtitle sources are off.
+`config.js` is in `.gitignore`. Never commit it. Keys typed on the TV win over `config.js`. Without any key the app works, only the online subtitle sources and TMDB extras are off.
+
+### Phone page (GitHub Pages)
+
+The page the QR code opens is `docs/pair.html`. To host your own copy: GitHub → your repository → Settings → Pages → "Deploy from a branch" → `main` / `/docs`. The address is then `https://<your-user>.github.io/<repository>/pair.html`; put it in `config.js` as `pairPageUrl` (the default points to the original author's page). The page sends nothing anywhere except the encrypted message to ntfy.sh.
+
+The same page has a **"How to get a key"** section (TMDB v3 key and Subdl key, in Turkish and English, with screenshots from `docs/help/img/`). The steps, in short:
+
+- **TMDB**: themoviedb.org → account → Settings → API → "+ Create" → choose "personal use only" → fill the short form → copy the **API Key (v3)**.
+- **Subdl**: subdl.com → Sign Up → account → API tab → copy the key in "Default key".
+
+Keys are personal: do not share them and do not publish screenshots that show them.
+
+Optional: `tmdbApiKey` (a free key from <https://www.themoviedb.org>) adds cast photos, age rating, tagline, Turkish plots, episode photos and summaries, and "Popular (TMDB)" lists that only show titles your provider really has. Without a key no TMDB request is made.
+This product uses the TMDB API but is not endorsed or certified by TMDB.
 
 ## Build and install on a TV
 
@@ -89,6 +109,7 @@ A package built **with** your `config.js` contains your keys: keep that `.ipk` t
 | Yellow | category list | edit categories |
 | Yellow | live player | today's program guide |
 | Blue | lists | list / grid view |
+| Blue | player | connection graph |
 | Left | live player (at the live edge) | channel list (otherwise: rewind 10 s) |
 | Right | player | forward 10 s |
 | Channel +/- | live player | next / previous channel |
@@ -97,7 +118,8 @@ A package built **with** your `config.js` contains your keys: keep that `.ipk` t
 ## Data and privacy
 
 - Your login is stored in the TV browser's `localStorage`. Stream addresses of Xtream servers contain the account name and password; watch positions are stored under keys without them. **Settings → Log out** removes the login, the watch history and caches; **Erase all data** removes everything.
-- There is no analytics and no server of ours. The app talks to: your provider (library, streams, guide), and, only for movies and episodes, Subdl and OpenSubtitles (title / ids, with your own keys).
+- There is no analytics and no server of ours. The app talks to: your provider (library, streams, guide), and, only for movies and episodes, The Subtitle Database and Subdl (title / ids). TMDB only with a key. ntfy.sh only while the QR pairing window is open, and only ciphertext.
+- API keys typed on the TV or received by QR are stored in the TV's `localStorage`; "Erase all data" removes them.
 
 ## Known limits
 
@@ -111,7 +133,8 @@ A package built **with** your `config.js` contains your keys: keep that `.ipk` t
 index.html, app.js, style.css   the app
 appinfo.json                    webOS app manifest (id, version)
 config.example.js               template for private settings (config.js is ignored by git)
-lib/                            hls.js, JSZip and their license texts
+lib/                            hls.js, JSZip, qrcode-generator and their license texts
+docs/pair.html                  phone page for the QR key entry (host with GitHub Pages)
 tools/build.js                  clean package builder
 ```
 
@@ -119,6 +142,7 @@ tools/build.js                  clean package builder
 
 - [hls.js](https://github.com/video-dev/hls.js) 1.7.4: Apache-2.0
 - [JSZip](https://github.com/Stuk/jszip) 3.10.1: MIT or GPLv3 (used under MIT)
+- [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) 1.4.4: MIT
 
 License texts are in `lib/licenses/`; see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
