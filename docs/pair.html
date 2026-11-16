@@ -153,7 +153,7 @@
     }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       msg.className = 'ok'; msg.textContent = T('Gönderildi ✓ TV ekranına bak.', 'Sent ✓ Look at your TV.');
-      ['tmdb', 'subdl', 'os'].forEach(function (id) { document.getElementById(id).value = ''; });
+      ['tmdb', 'subdl'].forEach(function (id) { document.getElementById(id).value = ''; });
     }).catch(function (err) {
       btn.disabled = false; msg.className = 'err'; msg.textContent = T('Gönderilemedi: ', 'Could not send: ') + (err && err.message ? err.message : err);
     });
