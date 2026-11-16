@@ -138,7 +138,7 @@ Bu ürün TMDB API'sini kullanır ancak TMDB tarafından onaylanmış ya da sert
 - **Dizilerde** online altyazı yalnızca Subdl'den gelir (kendi anahtarın gerekir). The Subtitle Database filmlerde kullanılır.
 - Ücretsiz altyazı kaynaklarının Türkçe kapsamı, popüler yabancı filmlerde iyi, eski Türk yapımlarında zayıftır.
 - Rehber yalnızca sağlayıcının verdiğini gösterir (birçok sağlayıcı yalnızca bazı kanalları doldurur). `xmltv.php` olmayan sağlayıcıda rehber yoktur.
-- Masaüstü Chromium'da sahte bir Xtream sunucusuna ve gerçek bir sağlayıcıya karşı denendi. 2.1 ve sonrası sürümler **henüz gerçek bir TV'de denenmedi**; her TV modelinde davranış garanti edilmez.
+- Masaüstü Chromium'da sahte bir Xtream sunucusuna ve gerçek bir sağlayıcıya karşı denendi. Her TV modelinde davranış garanti edilmez.
 
 ## Proje yapısı
 

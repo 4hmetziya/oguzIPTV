@@ -9,14 +9,12 @@ English first, Türkçe aşağıda her sürümün altında.
 - OpenSubtitles removed from Settings and from the phone page; users are no longer asked for that key.
 - **Phone page:** new "How to get a key" help for TMDB and Subdl (Turkish and English, with screenshots). Fixed a wrong "could not send" message that appeared after a successful send.
 - README rewritten and now also available in Turkish (`README.tr.md`).
-- Not yet tested on a real TV.
 
 **Türkçe**
 - **Altyazı:** yeni sıra: Subdl (kendi anahtarın) → The Subtitle Database (anahtarsız, sadece filmler) → OpenSubtitles (yalnızca `config.js`'teki geliştirici anahtarı). Ekrandaki küçük not hangi kaynağın cevap verdiğini gösterir.
 - OpenSubtitles, Ayarlar'dan ve telefon sayfasından kaldırıldı; kullanıcıdan artık bu anahtar istenmez.
 - **Telefon sayfası:** TMDB ve Subdl için yeni "Anahtar nasıl alınır?" yardımı (Türkçe ve İngilizce, ekran görüntülü). Başarılı gönderimden sonra çıkan yanlış "Gönderilemedi" mesajı düzeltildi.
 - README yenilendi ve artık Türkçesi de var (`README.tr.md`).
-- Henüz gerçek bir TV'de denenmedi.
 
 ## 2.1.0 – 2.3.0
 

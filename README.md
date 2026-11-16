@@ -138,7 +138,7 @@ A package built **with** your `config.js` contains your keys: keep that `.ipk` t
 - Online subtitles for **series** come from Subdl only (needs your own key). The Subtitle Database is used for movies.
 - Turkish coverage of the free subtitle sources is good for popular international movies and weak for older Turkish titles.
 - The program guide only shows what your provider delivers (many providers fill only some channels). A provider without `xmltv.php` simply has no guide.
-- Tested in a desktop Chromium against a fake Xtream server and a real provider. **Not yet tested on a real TV** for versions 2.1 and later; behaviour on every TV model is not guaranteed.
+- Tested in a desktop Chromium against a fake Xtream server and a real provider. Behaviour on every TV model is not guaranteed.
 
 ## Project layout
 
